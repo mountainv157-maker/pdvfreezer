@@ -1,69 +1,306 @@
-import Image from "next/image";
+"use client";
+import { useState, useEffect, useRef } from "react";
+type Tab = "home"|"pdv"|"add"|"dash"|"settings";
+type Produto = { id:number; nome:string; preco:string; qtd:number; imagem:string };
+type CartItem = Produto & { cartQtd:number };
+type Venda = { id:number; itens:string; total:number; pagamento:string; descricao:string; created_at:string };
 
-export default function Home() {
+const TABS = [
+  {id:"home" as Tab, icon:"home"},
+  {id:"pdv" as Tab, icon:"inventory_2"},
+  {id:"add" as Tab, icon:"add_box"},
+  {id:"dash" as Tab, icon:"monitoring"},
+  {id:"settings" as Tab, icon:"settings"},
+];
+
+const GALERIA = [
+  { nome:"Coca-Cola 2L", url:"/img/coca2lt.png" },
+  { nome:"Coca Lata 350ml", url:"/img/cocalata.png" },
+  { nome:"Coca Zero Lata 350ml", url:"/img/cocalatazero.png" },
+  { nome:"Fanta Laranja 2L", url:"/img/fanta2lt.png" },
+  { nome:"Fanta Lata", url:"/img/fantalata.png" },
+  { nome:"Guaraná 2L", url:"/img/guarana2lt.png" },
+  { nome:"Guaraná Lata", url:"/img/guaranalata.png" },  
+  { nome:"Guaraná Lata Zero", url:"/img/guaranalatazero.png" },
+  { nome:"Água 500ml", url:"/img/agua.png" },
+];
+
+export default function App(){
+  const [logged,setLogged]=useState(false);
+  const [loginForm,setLoginForm]=useState({user:"",pass:""});
+  const [tab,setTab]=useState<Tab>("home");
+  const [dark,setDark]=useState(true);
+  const [produtos,setProdutos]=useState<Produto[]>([]);
+  const [cart,setCart]=useState<CartItem[]>([]);
+  const [vendas,setVendas]=useState<Venda[]>([]);
+  const [pagamento,setPagamento]=useState("pix");
+  const [descricao,setDescricao]=useState("");
+  const [showCheckout,setShowCheckout]=useState(false);
+  const [toast,setToast]=useState<string|null>(null);
+  const [savedPass,setSavedPass]=useState("12345");
+  const [newPass,setNewPass]=useState("");
+  const afkRef=useRef<any>(null);
+  const showToast=(m:string)=>{ setToast(m); setTimeout(()=>setToast(null),3000); };
+
+  useEffect(()=>{
+    setLogged(sessionStorage.getItem("freezer_logged")==="true");
+    setSavedPass(localStorage.getItem("freezer_pass")||"12345");
+    if(localStorage.getItem("theme")==="light") setDark(false);
+  },[]);
+  useEffect(()=>{ document.documentElement.classList.toggle("light",!dark); localStorage.setItem("theme", dark?"dark":"light"); },[dark]);
+
+  useEffect(()=>{
+    if(!logged) return;
+    const reset=()=>{ clearTimeout(afkRef.current); afkRef.current=setTimeout(()=>{ sessionStorage.removeItem("freezer_logged"); setLogged(false); },5*60*1000); };
+    ["mousemove","keydown","touchstart","click"].forEach(e=>window.addEventListener(e,reset));
+    reset(); return()=>{ ["mousemove","keydown","touchstart","click"].forEach(e=>window.removeEventListener(e,reset)); clearTimeout(afkRef.current); };
+  },[logged]);
+
+  const fetchProdutos=()=> fetch("/api/produtos").then(r=>r.json()).then(d=> Array.isArray(d)&&setProdutos(d));
+  const fetchVendas=()=> fetch("/api/vendas").then(r=>r.json()).then(d=> Array.isArray(d)&&setVendas(d));
+  useEffect(()=>{ if(logged){ fetchProdutos(); fetchVendas(); } },[logged, tab]);
+
+  function doLogin(){
+    if(loginForm.user==="freezer" && loginForm.pass===savedPass){ setLogged(true); sessionStorage.setItem("freezer_logged","true"); setLoginForm({user:"",pass:""}); }
+    else showToast("Usuário: freezer / Senha: "+savedPass);
+  }
+
+  function addToCart(p:Produto){
+    if(p.qtd<=0) return showToast("Sem estoque");
+    setCart(prev=>{
+      const ex=prev.find(c=>c.id===p.id);
+      if(ex){
+        if(ex.cartQtd>=p.qtd){ showToast("Estoque máximo: "+p.qtd); return prev; }
+        return prev.map(c=>c.id===p.id? {...c, cartQtd:c.cartQtd+1}:c);
+      }
+      return [...prev, {...p, cartQtd:1}];
+    });
+  }
+
+  async function finalizarVenda(){
+    const total=cart.reduce((s,i)=>s+parseFloat(i.preco)*i.cartQtd,0);
+    try{
+      const r=await fetch("/api/vendas",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({itens:cart, total, pagamento, descricao})});
+      const data=await r.json();
+      if(!r.ok) throw new Error(data.error);
+      setCart([]); setDescricao(""); setShowCheckout(false); fetchProdutos(); fetchVendas(); setTab("dash");
+      showToast("Venda salva!");
+    }catch(e:any){ showToast(e.message); }
+  }
+
+  async function deletarProduto(id:number){
+    if(!confirm("Remover do freezer?")) return;
+    await fetch("/api/produtos?id="+id, {method:"DELETE"}); fetchProdutos();
+  }
+
+  const total=cart.reduce((s,i)=>s+parseFloat(i.preco)*i.cartQtd,0);
+  const totalQtd=cart.reduce((s,i)=>s+i.cartQtd,0);
+  const activeIndex=TABS.findIndex(t=>t.id===tab);
+  const produtosAtivos = produtos.filter(p=> p.qtd>0);
+
+  const resumoFechamento = ()=>{
+    let mapa: Record<string,{qtd:number, total:number}> = {};
+    let porPagamento: Record<string, number> = {};
+    vendas.forEach(v=>{
+      let itens:CartItem[]=[]; try{ itens=JSON.parse(v.itens);}catch{}
+      itens.forEach(it=>{
+        const key = it.nome;
+        if(!mapa[key]) mapa[key]={qtd:0, total:0};
+        mapa[key].qtd+=it.cartQtd;
+        mapa[key].total+=parseFloat(it.preco)*it.cartQtd;
+      });
+      porPagamento[v.pagamento]=(porPagamento[v.pagamento]||0)+Number(v.total);
+    });
+    return {mapa, porPagamento, totalGeral: vendas.reduce((s,v)=>s+Number(v.total),0)};
+  };
+
+  if(!logged){
+    return (
+      <div className={"min-h-screen flex items-center justify-center p-6 "+(dark?"bg-[#0A0A0C] text-white":"bg-[#F6F6F7] text-black")}>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"/>
+        {toast && <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-white px-5 py-3 rounded-full text-sm z-50">{toast}</div>}
+        <div className={"w-full max-w-[380px] p-8 rounded-[24px] border "+(dark?"bg-zinc-900 border-zinc-800":"bg-white border-zinc-200")}>
+          <h1 className="text-3xl font-bold">Freezer da Amanda</h1>
+          <p className="text-xs opacity-50 mt-1">Sessão expira em 5min</p>
+          <input placeholder="Usuário" value={loginForm.user} onChange={e=>setLoginForm({...loginForm,user:e.target.value})} className={"mt-8 w-full p-3 rounded-xl bg-transparent border "+(dark?"border-zinc-800":"border-zinc-200")}/>
+          <input placeholder="Senha" type="password" value={loginForm.pass} onChange={e=>setLoginForm({...loginForm,pass:e.target.value})} onKeyDown={e=>e.key==="Enter"&&doLogin()} className={"mt-3 w-full p-3 rounded-xl bg-transparent border "+(dark?"border-zinc-800":"border-zinc-200")}/>
+          <button onClick={doLogin} className="w-full mt-5 py-3 rounded-xl bg-[#D6FF57] text-black font-bold">Entrar</button>
+        </div>
+      </div>
+    )
+  }
+
+  const bg = dark? "bg-[#0A0A0C] text-zinc-100" : "bg-[#F6F6F7] text-zinc-900";
+  const card = dark? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200";
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+    <div className={"min-h-screen flex flex-col items-center "+bg}>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"/>
+      {toast && <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-white px-5 py-3 rounded-full text-sm z-[100] border border-zinc-700">{toast}</div>}
+      <header className="w-full max-w-[1200px] px-6 py-4 flex justify-between"><div className="font-bold">Freezer da Amanda</div><div className="text-xs opacity-50">AFK 5min</div></header>
+
+      <main className="w-full max-w-[1200px] flex-1 px-6 pb-48 pt-2">
+        {tab==="home" && (
+          <div>
+            <h1 className="text-3xl font-bold">Home</h1>
+            <p className="text-xs opacity-60">{produtosAtivos.length} disponíveis (zerados somem)</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+              {produtosAtivos.map(p=>(
+                <div key={p.id} className={"rounded-2xl border overflow-hidden "+card}>
+                  <img src={p.imagem} className="w-full h-28 object-contain bg-white p-2"/>
+                  <div className="p-3"><p className="text-sm font-semibold truncate">{p.nome}</p><p className="text-[11px] opacity-50">Estoque: {p.qtd}</p><div className="flex justify-between items-center mt-2"><b>R$ {p.preco}</b><button onClick={()=>addToCart(p)} className="w-8 h-8 rounded-full bg-[#D6FF57] text-black flex items-center justify-center"><span className="material-symbols-rounded">add</span></button></div></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab==="pdv" && (
+          <div className="max-w-[700px] mx-auto">
+            <h1 className="text-3xl font-bold">PDV - Produtos</h1>
+            <p className="text-xs opacity-60">Adiciona e remove produtos do banco</p>
+            <div className={"mt-4 rounded-2xl border divide-y "+card+" divide-zinc-800"}>
+              {produtos.map(p=>(
+                <div key={p.id} className={"p-4 flex gap-3 items-center "+(p.qtd<=0?"opacity-40":"")}>
+                  <img src={p.imagem} className="w-12 h-12 rounded-xl bg-white p-1 object-contain"/>
+                  <div className="flex-1"><p className="text-sm font-semibold">{p.nome} {p.qtd<=0&&"(ESGOTADO)"}</p><p className="text-xs opacity-60">R$ {p.preco} • {p.qtd} un</p></div>
+                  <button onClick={async()=>{ const n=prompt("Nova qtd:", String(p.qtd)); if(n===null) return; await fetch("/api/produtos",{method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify({id:p.id, qtd:Number(n)})}); fetchProdutos(); }} className="px-3 py-1 rounded-full bg-zinc-800 text-white text-xs">Editar</button>
+                  <button onClick={()=>deletarProduto(p.id)} className="w-8 h-8 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center"><span className="material-symbols-rounded text-[18px]">delete</span></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab==="add" && <div className="max-w-[520px] mx-auto"><h1 className="text-3xl font-bold">Adicionar</h1><p className="text-xs opacity-60">Se nome igual, soma no estoque.</p><AddProduto fetchProdutos={fetchProdutos} showToast={showToast}/></div>}
+
+        {tab==="dash" && (
+          <div className="max-w-[700px] mx-auto">
+            <h1 className="text-3xl font-bold">Ciclo - Acerto/Fechamento</h1>
+            {(()=>{
+              const {mapa, porPagamento, totalGeral} = resumoFechamento();
+              return (
+                <div className="mt-4 space-y-4">
+                  <div className={"p-4 rounded-2xl border "+card}>
+                    <p className="font-bold">💰 Fechamento Geral</p>
+                    <p className="text-2xl font-bold mt-2">R$ {totalGeral.toFixed(2)}</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      {Object.entries(porPagamento).map(([k,v])=> <div key={k} className="p-2 rounded-xl bg-zinc-800 text-white flex justify-between"><span className="uppercase">{k}</span><b>R$ {Number(v).toFixed(2)}</b></div>)}
+                    </div>
+                  </div>
+                  <div className={"p-4 rounded-2xl border "+card}>
+                    <p className="font-bold">📦 Produtos Vendidos</p>
+                    <div className="mt-3 space-y-2 text-sm">
+                      {Object.entries(mapa).map(([nome, d])=> <div key={nome} className="flex justify-between"><span>{d.qtd}x {nome}</span><b>R$ {d.total.toFixed(2)}</b></div>)}
+                      {Object.keys(mapa).length===0 && <p className="opacity-60">Nenhuma venda</p>}
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {vendas.map(v=>{
+                      let itens:CartItem[]=[]; try{ itens=JSON.parse(v.itens);}catch{}
+                      return (
+                        <div key={v.id} className={"p-4 rounded-2xl border "+card}>
+                          <div className="flex justify-between items-center">
+                            <b>#{v.id} R$ {Number(v.total).toFixed(2)}</b>
+                            <div className="flex gap-2 items-center">
+                              <span className="text-[10px] px-2 py-1 rounded-full bg-[#D6FF57] text-black uppercase">{v.pagamento}</span>
+                              <button onClick={async()=>{
+                                if(!confirm("Apagar venda #"+v.id+"? Estoque vai voltar.")) return;
+                                await fetch("/api/vendas?id="+v.id, {method:"DELETE"});
+                                fetchVendas(); fetchProdutos(); showToast("Venda apagada");
+                              }} className="w-7 h-7 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center">
+                                <span className="material-symbols-rounded text-[16px]">delete</span>
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-xs opacity-50 mt-1">{new Date(v.created_at).toLocaleString("pt-BR")} • {itens.reduce((s,i)=>s+i.cartQtd,0)} itens</p>
+                          <p className="text-xs mt-1">{itens.map(i=>`${i.cartQtd}x ${i.nome}`).join(" • ")}</p>
+                          {v.descricao && <div className="mt-2 text-sm p-2 bg-zinc-800 rounded-lg text-white">📝 {v.descricao}</div>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        )}
+
+        {tab==="settings" && (
+          <div className="max-w-[520px] mx-auto">
+            <h1 className="text-3xl font-bold">Config</h1>
+            <div className={"mt-6 p-6 rounded-2xl border space-y-6 "+card}>
+              <div className="flex justify-between items-center"><span className="flex items-center gap-2"><span className="material-symbols-rounded">dark_mode</span> Tema</span><button onClick={()=>setDark(!dark)} className={"px-4 py-2 rounded-full border "+(dark?"bg-zinc-800":"bg-zinc-100")}>{dark?"Dark":"Light"}</button></div>
+              <div className={"p-4 rounded-xl "+(dark?"bg-zinc-800":"bg-zinc-100")}>
+                <p className="text-sm font-semibold">Trocar senha (atual: {savedPass})</p>
+                <div className="flex gap-2 mt-3"><input placeholder="Nova senha" value={newPass} onChange={e=>setNewPass(e.target.value)} className="flex-1 p-2 rounded-lg bg-transparent border border-zinc-600"/><button onClick={()=>{ if(newPass.length<4) return showToast("Min 4 dígitos"); localStorage.setItem("freezer_pass", newPass); setSavedPass(newPass); setNewPass(""); showToast("Senha alterada!"); }} className="px-4 py-2 rounded-lg bg-[#D6FF57] text-black font-bold">Salvar</button></div>
+              </div>
+              <button onClick={()=>{ sessionStorage.removeItem("freezer_logged"); setLogged(false); }} className="w-full py-3 rounded-xl border border-red-500/30 text-red-500">Sair</button>
+            </div>
+          </div>
+        )}
       </main>
+
+      {cart.length>0 && (
+        <div className={"fixed bottom-28 left-1/2 -translate-x-1/2 w-[96%] max-w-[460px] rounded-[24px] p-4 shadow-2xl z-40 border "+card}>
+          <div className="flex justify-between items-center mb-3"><b className="flex items-center gap-2"><span className="material-symbols-rounded">shopping_cart</span> {totalQtd} itens</b><b>R$ {total.toFixed(2)}</b></div>
+          <div className="max-h-[140px] overflow-auto space-y-2 mb-3">
+            {cart.map(i=>(
+              <div key={i.id} className="flex items-center gap-2 bg-zinc-800 rounded-xl p-2 text-white">
+                <img src={i.imagem} className="w-8 h-8 bg-white rounded object-contain"/><span className="flex-1 text-xs truncate">{i.nome}</span>
+                <div className="flex items-center gap-1"><button onClick={()=> setCart(c=> c.map(x=> x.id===i.id? {...x, cartQtd: Math.max(1, x.cartQtd-1)}:x))} className="w-7 h-7 rounded-full bg-zinc-700">-</button><span className="w-5 text-center text-sm">{i.cartQtd}</span><button onClick={()=>{ const estoque=produtos.find(p=>p.id===i.id)?.qtd||0; if(i.cartQtd>=estoque){ showToast("Estoque: "+estoque); return; } setCart(c=> c.map(x=> x.id===i.id? {...x, cartQtd: x.cartQtd+1}:x))}} className="w-7 h-7 rounded-full bg-zinc-700">+</button></div>
+                <button onClick={()=> setCart(c=>c.filter(x=>x.id!==i.id))} className="w-7 h-7 rounded-full bg-red-500/20 text-red-400"><span className="material-symbols-rounded text-[16px]">close</span></button>
+              </div>
+            ))}
+          </div>
+          <button onClick={()=> setShowCheckout(true)} className="w-full py-3 rounded-xl bg-[#D6FF57] text-black font-bold">Finalizar Venda</button>
+        </div>
+      )}
+
+      {showCheckout && (
+        <div className="fixed inset-0 bg-black/70 z-[100] flex items-end md:items-center justify-center p-4">
+          <div className={"w-full max-w-[460px] rounded-[24px] p-6 space-y-4 border "+card}>
+            <div className="flex justify-between"><h2 className="font-bold text-xl">Finalizar</h2><button onClick={()=> setShowCheckout(false)}><span className="material-symbols-rounded">close</span></button></div>
+            <p className="text-sm opacity-60">{totalQtd} itens • R$ {total.toFixed(2)}</p>
+            <div className="grid grid-cols-4 gap-2">{[{id:"pix",icon:"qr_code"},{id:"dinheiro",icon:"payments"},{id:"cartao",icon:"credit_card"},{id:"vale",icon:"receipt_long"}].map(m=>(<button key={m.id} onClick={()=>setPagamento(m.id)} className={"p-3 rounded-xl border flex flex-col items-center gap-1 "+(pagamento===m.id? "bg-[#D6FF57] text-black border-[#D6FF57]" : "border-zinc-700")}><span className="material-symbols-rounded">{m.icon}</span><span className="text-[10px] uppercase">{m.id}</span></button>))}</div>
+            <textarea placeholder="Descrição (cliente, fiado...)" value={descricao} onChange={e=>setDescricao(e.target.value)} className="w-full p-3 rounded-xl bg-transparent border border-zinc-700 h-20"/>
+            <button onClick={finalizarVenda} className="w-full py-4 rounded-xl bg-[#D6FF57] text-black font-bold">Confirmar R$ {total.toFixed(2)}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[96%] max-w-[460px]">
+        <div className="relative rounded-[28px] p-2 flex justify-between items-center bg-[#151517] border border-zinc-800 shadow-2xl">
+          <div className="absolute top-1/2 -translate-y-1/2 transition-all duration-500" style={{left: (activeIndex * 20 + 2) + "%", width:"16%"}}><div className="w-[56px] h-[56px] mx-auto rounded-full flex items-center justify-center bg-[#D6FF57]"><span className="material-symbols-rounded text-black">{TABS[activeIndex].icon}</span></div></div>
+          {TABS.map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={"relative z-10 w-[56px] h-[56px] flex items-center justify-center "+(tab===t.id?"opacity-0":"opacity-50 text-white")}><span className="material-symbols-rounded text-[26px]">{t.icon}</span></button>)}
+        </div>
+      </div>
     </div>
   );
+}
+
+function AddProduto({fetchProdutos, showToast}:any){
+  const [form,setForm]=useState({nome:"", preco:"", qtd:"", imagem:""});
+  const [loading,setLoading]=useState(false);
+  async function save(){
+    if(!form.nome ||!form.preco) return showToast("Nome e preço");
+    if(!form.imagem) return showToast("Escolha imagem");
+    setLoading(true);
+    try{
+      const r=await fetch("/api/produtos",{method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({nome:form.nome, preco:form.preco, qtd:parseInt(form.qtd||"0"), imagem:form.imagem})});
+      if(!r.ok) throw new Error("Erro banco");
+      const data=await r.json();
+      setForm({nome:"",preco:"",qtd:"",imagem:""}); fetchProdutos(); showToast(data.qtd? `Estoque somado! Agora ${data.qtd} un` : "Produto salvo!");
+    }catch(e:any){ showToast(e.message); }
+    setLoading(false);
+  }
+  return (
+    <div className="mt-6 p-6 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4">
+      <div className="grid grid-cols-4 gap-2">{GALERIA.map(img=><button key={img.nome} onClick={()=>setForm({...form, imagem:img.url, nome: form.nome||img.nome})} className={"h-20 rounded-xl bg-white p-1 border-2 "+(form.imagem===img.url? "border-[#D6FF57]" : "border-transparent")}><img src={img.url} className="w-full h-full object-contain"/></button>)}</div>
+      {form.imagem && <div className="flex gap-3 items-center p-2 bg-zinc-800 rounded-xl text-white"><img src={form.imagem} className="w-12 h-12 bg-white rounded p-1 object-contain"/><span className="text-sm">{form.nome}</span></div>}
+      <input placeholder="Nome" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} className="w-full p-3 rounded-xl bg-transparent border border-zinc-700 text-white"/>
+      <div className="grid grid-cols-2 gap-3"><input placeholder="Preço" type="number" value={form.preco} onChange={e=>setForm({...form,preco:e.target.value})} className="p-3 rounded-xl bg-transparent border border-zinc-700 text-white"/><input placeholder="Qtd" type="number" value={form.qtd} onChange={e=>setForm({...form,qtd:e.target.value})} className="p-3 rounded-xl bg-transparent border border-zinc-700 text-white"/></div>
+      <button onClick={save} disabled={loading} className="w-full py-3 rounded-xl bg-[#D6FF57] text-black font-bold">{loading?"Salvando...":"Salvar"}</button>
+    </div>
+  )
 }
