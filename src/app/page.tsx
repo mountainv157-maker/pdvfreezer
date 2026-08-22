@@ -37,14 +37,14 @@ export default function App(){
   const [descricao,setDescricao]=useState("");
   const [showCheckout,setShowCheckout]=useState(false);
   const [toast,setToast]=useState<string|null>(null);
-  const [savedPass,setSavedPass]=useState("12345");
+  const [savedPass,setSavedPass]=useState("pdvadmin123");
   const [newPass,setNewPass]=useState("");
   const afkRef=useRef<any>(null);
   const showToast=(m:string)=>{ setToast(m); setTimeout(()=>setToast(null),3000); };
 
   useEffect(()=>{
     setLogged(sessionStorage.getItem("freezer_logged")==="true");
-    setSavedPass(localStorage.getItem("freezer_pass")||"12345");
+    setSavedPass(localStorage.getItem("freezer_pass")||"pdvadmin123");
     if(localStorage.getItem("theme")==="light") setDark(false);
   },[]);
   useEffect(()=>{ document.documentElement.classList.toggle("light",!dark); localStorage.setItem("theme", dark?"dark":"light"); },[dark]);
@@ -62,7 +62,7 @@ export default function App(){
 
   function doLogin(){
     if(loginForm.user==="freezer" && loginForm.pass===savedPass){ setLogged(true); sessionStorage.setItem("freezer_logged","true"); setLoginForm({user:"",pass:""}); }
-    else showToast("Usuário: freezer / Senha: "+savedPass);
+  //  else showToast("Usuário: freezer / Senha: "+savedPass);
   }
 
   function addToCart(p:Produto){
@@ -121,7 +121,6 @@ export default function App(){
         {toast && <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-white px-5 py-3 rounded-full text-sm z-50">{toast}</div>}
         <div className={"w-full max-w-[380px] p-8 rounded-[24px] border "+(dark?"bg-zinc-900 border-zinc-800":"bg-white border-zinc-200")}>
           <h1 className="text-3xl font-bold">Freezer da Amanda</h1>
-          <p className="text-xs opacity-50 mt-1">Sessão expira em 5min</p>
           <input placeholder="Usuário" value={loginForm.user} onChange={e=>setLoginForm({...loginForm,user:e.target.value})} className={"mt-8 w-full p-3 rounded-xl bg-transparent border "+(dark?"border-zinc-800":"border-zinc-200")}/>
           <input placeholder="Senha" type="password" value={loginForm.pass} onChange={e=>setLoginForm({...loginForm,pass:e.target.value})} onKeyDown={e=>e.key==="Enter"&&doLogin()} className={"mt-3 w-full p-3 rounded-xl bg-transparent border "+(dark?"border-zinc-800":"border-zinc-200")}/>
           <button onClick={doLogin} className="w-full mt-5 py-3 rounded-xl bg-[#D6FF57] text-black font-bold">Entrar</button>
@@ -137,13 +136,13 @@ export default function App(){
     <div className={"min-h-screen flex flex-col items-center "+bg}>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"/>
       {toast && <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-white px-5 py-3 rounded-full text-sm z-[100] border border-zinc-700">{toast}</div>}
-      <header className="w-full max-w-[1200px] px-6 py-4 flex justify-between"><div className="font-bold">Freezer da Amanda</div><div className="text-xs opacity-50">AFK 5min</div></header>
+      <header className="w-full max-w-[1200px] px-6 py-4 flex justify-between"><div className="font-bold">Freezer da Amanda</div><div className="text-xs opacity-50">n</div></header>
 
       <main className="w-full max-w-[1200px] flex-1 px-6 pb-48 pt-2">
         {tab==="home" && (
           <div>
             <h1 className="text-3xl font-bold">Home</h1>
-            <p className="text-xs opacity-60">{produtosAtivos.length} disponíveis (zerados somem)</p>
+            <p className="text-xs opacity-60">{produtosAtivos.length}</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
               {produtosAtivos.map(p=>(
                 <div key={p.id} className={"rounded-2xl border overflow-hidden "+card}>
