@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Tab =
   | "home"
@@ -30,6 +30,8 @@ type Venda = {
   pagamento: string;
   descricao: string;
   created_at: string;
+  fechamento_id?: number | null;
+  fechado?: number | boolean;
 };
 
 type ProdutoResumo = {
@@ -50,63 +52,77 @@ type DescricaoResumo = {
 
 type Fechamento = {
   id: number;
-  numero: number;
+  numero?: number;
   created_at: string;
-  total: number;
-  quantidade_vendas: number;
-  quantidade_itens: number;
+  total?: number;
+  dados?: any;
 };
 
-type FechamentoDetalhe = Fechamento & {
-  venda_ids: number[];
-  resumo: {
-    fechamentoGeral: {
-      total: number;
-      quantidadeVendas: number;
-      quantidadeItens: number;
-    };
-    porPagamento: Record<string, PagamentoResumo>;
-    porDescricao: DescricaoResumo[];
-    semDescricao: DescricaoResumo;
-    produtos: Record<string, ProdutoResumo>;
-  };
-};
-
-const TABS = [
+const TABS: {
+  id: Tab;
+  icon: string;
+  label: string;
+}[] = [
   {
-    id: "home" as Tab,
+    id: "home",
     icon: "home",
-    label: "Home",
+    label: "Início",
   },
   {
-    id: "pdv" as Tab,
+    id: "pdv",
     icon: "inventory_2",
     label: "PDV",
   },
   {
-    id: "add" as Tab,
+    id: "add",
     icon: "add_box",
     label: "Adicionar",
   },
   {
-    id: "dash" as Tab,
+    id: "dash",
     icon: "monitoring",
     label: "Dash",
   },
   {
-    id: "fechamentos" as Tab,
+    id: "fechamentos",
     icon: "receipt_long",
     label: "Fechamentos",
   },
   {
-    id: "log" as Tab,
+    id: "log",
     icon: "history",
     label: "Log",
   },
   {
-    id: "settings" as Tab,
+    id: "settings",
     icon: "settings",
     label: "Config",
+  },
+];
+
+const NAV_TABS: {
+  id: Tab;
+  icon: string;
+}[] = [
+  {
+    id: "home",
+    icon: "home",
+  },
+  {
+    id: "pdv",
+    icon: "inventory_2",
+  },
+  {
+    id: "dash",
+    icon: "monitoring",
+  },
+  {
+    id: "fechamentos",
+    icon: "receipt_long",
+  },
+  {
+    id: "settings",
+    icon: "settings",
   },
 ];
 
@@ -149,6 +165,80 @@ const GALERIA = [
   },
 ];
 
+function normalizarDescricao(value: string) {
+  return String(value || "")
+    .trim()
+    .toLocaleLowerCase("pt-BR");
+}
+
+function dinheiro(value: number) {
+  return Number(value || 0).toLocaleString(
+    "pt-BR",
+    {
+      style: "currency",
+      currency: "BRL",
+    }
+  );
+}
+
+function parseItens(
+  itens: string
+): CartItem[] {
+  try {
+    const data = JSON.parse(itens);
+
+    return Array.isArray(data)
+      ? data
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatarData(value: string) {
+  if (!value) return "-";
+
+  const d = new Date(value);
+
+  if (Number.isNaN(d.getTime())) {
+    return value;
+  }
+
+  return d.toLocaleString("pt-BR");
+}
+
+function formatarDataFechamento(
+  value: string
+) {
+  if (!value) return "-";
+
+  const d = new Date(value);
+
+  if (Number.isNaN(d.getTime())) {
+    return value;
+  }
+
+  return d.toLocaleDateString(
+    "pt-BR",
+    {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    }
+  );
+}
+
+function numeroFechamento(
+  fechamento: Fechamento,
+  index: number
+) {
+  return String(
+    fechamento.numero ||
+      fechamento.id ||
+      index + 1
+  ).padStart(3, "0");
+}
+
 export default function App() {
   const [logged, setLogged] =
     useState(false);
@@ -174,6 +264,12 @@ export default function App() {
   const [vendas, setVendas] =
     useState<Venda[]>([]);
 
+  const [vendasHistorico, setVendasHistorico] =
+    useState<Venda[]>([]);
+
+  const [fechamentos, setFechamentos] =
+    useState<Fechamento[]>([]);
+
   const [pagamento, setPagamento] =
     useState("pix");
 
@@ -181,6 +277,12 @@ export default function App() {
     useState("");
 
   const [showCheckout, setShowCheckout] =
+    useState(false);
+
+  const [showConfirmFechamento, setShowConfirmFechamento] =
+    useState(false);
+
+  const [fazendoFechamento, setFazendoFechamento] =
     useState(false);
 
   const [toast, setToast] =
@@ -192,61 +294,22 @@ export default function App() {
   const [newPass, setNewPass] =
     useState("");
 
-  const [
-    fechamentos,
-    setFechamentos,
-  ] = useState<Fechamento[]>([]);
+  const [logBusca, setLogBusca] =
+    useState("");
 
-  const [
-    fechamentoAberto,
-    setFechamentoAberto,
-  ] = useState<number | null>(null);
-
-  const [
-    fechamentoDetalhe,
-    setFechamentoDetalhe,
-  ] =
-    useState<FechamentoDetalhe | null>(
-      null
-    );
-
-  const [
-    loadingFechamento,
-    setLoadingFechamento,
-  ] = useState(false);
-
-  const [
-    fazendoFechamento,
-    setFazendoFechamento,
-  ] = useState(false);
-
-  const [
-    pesquisaLog,
-    setPesquisaLog,
-  ] = useState("");
+  const [fechamentoAberto, setFechamentoAberto] =
+    useState<number | null>(null);
 
   const afkRef =
     useRef<any>(null);
 
-  /*
-   * ==========================================================
-   * TOAST
-   * ==========================================================
-   */
-
-  const showToast = (m: string) => {
-    setToast(m);
+  const showToast = (message: string) => {
+    setToast(message);
 
     setTimeout(() => {
       setToast(null);
     }, 3000);
   };
-
-  /*
-   * ==========================================================
-   * LOGIN / TEMA
-   * ==========================================================
-   */
 
   useEffect(() => {
     setLogged(
@@ -282,12 +345,6 @@ export default function App() {
     );
   }, [dark]);
 
-  /*
-   * ==========================================================
-   * AUTO LOGOUT
-   * ==========================================================
-   */
-
   useEffect(() => {
     if (!logged) return;
 
@@ -306,14 +363,17 @@ export default function App() {
         }, 5 * 60 * 1000);
     };
 
-    [
+    const events = [
       "mousemove",
       "keydown",
       "touchstart",
       "click",
-    ].forEach((e) =>
+      "scroll",
+    ];
+
+    events.forEach((event) =>
       window.addEventListener(
-        e,
+        event,
         reset
       )
     );
@@ -321,14 +381,9 @@ export default function App() {
     reset();
 
     return () => {
-      [
-        "mousemove",
-        "keydown",
-        "touchstart",
-        "click",
-      ].forEach((e) =>
+      events.forEach((event) =>
         window.removeEventListener(
-          e,
+          event,
           reset
         )
       );
@@ -339,230 +394,123 @@ export default function App() {
     };
   }, [logged]);
 
-  /*
-   * ==========================================================
-   * PRODUTOS
-   * ==========================================================
-   */
-
-  const fetchProdutos = () =>
-    fetch("/api/produtos")
-      .then((r) => r.json())
-      .then((d) => {
-        if (Array.isArray(d)) {
-          setProdutos(d);
-        }
-      })
-      .catch(() => {
-        showToast(
-          "Erro ao carregar produtos"
-        );
-      });
-
-  /*
-   * ==========================================================
-   * VENDAS
-   * ==========================================================
-   */
-
-  const fetchVendas = () =>
-    fetch("/api/vendas")
-      .then((r) => r.json())
-      .then((d) => {
-        if (Array.isArray(d)) {
-          setVendas(d);
-        }
-      })
-      .catch(() => {
-        showToast(
-          "Erro ao carregar vendas"
-        );
-      });
-
-  /*
-   * ==========================================================
-   * FECHAMENTOS
-   * ==========================================================
-   */
-
-  const fetchFechamentos =
-    async () => {
-      try {
-        const r = await fetch(
-          "/api/fechamentos"
-        );
-
-        const data =
-          await r.json();
-
-        if (!r.ok) {
-          throw new Error(
-            data.error ||
-              "Erro ao buscar fechamentos"
-          );
-        }
-
-        if (Array.isArray(data)) {
-          setFechamentos(data);
-        }
-      } catch (e: any) {
-        showToast(
-          e.message ||
-            "Erro ao carregar fechamentos"
-        );
-      }
-    };
-
-  /*
-   * ==========================================================
-   * ABRIR FECHAMENTO
-   * ==========================================================
-   */
-
-  const abrirFechamento =
-    async (id: number) => {
-      if (
-        fechamentoAberto === id
-      ) {
-        setFechamentoAberto(null);
-        setFechamentoDetalhe(
-          null
-        );
-        return;
-      }
-
-      setFechamentoAberto(id);
-      setLoadingFechamento(true);
-
-      try {
-        const r = await fetch(
-          "/api/fechamentos?id=" +
-            id
-        );
-
-        const data =
-          await r.json();
-
-        if (!r.ok) {
-          throw new Error(
-            data.error ||
-              "Erro ao abrir fechamento"
-          );
-        }
-
-        setFechamentoDetalhe(
-          data
-        );
-      } catch (e: any) {
-        showToast(
-          e.message ||
-            "Erro ao abrir fechamento"
-        );
-
-        setFechamentoAberto(null);
-      } finally {
-        setLoadingFechamento(false);
-      }
-    };
-
-  /*
-   * ==========================================================
-   * FAZER FECHAMENTO
-   * ==========================================================
-   */
-
-  const fazerFechamento =
-    async () => {
-      if (vendas.length === 0) {
-        showToast(
-          "Nenhuma venda registrada."
-        );
-
-        return;
-      }
-
-      if (
-        !confirm(
-          "Fazer um novo fechamento com as vendas ainda não fechadas?"
-        )
-      ) {
-        return;
-      }
-
-      setFazendoFechamento(true);
-
-      try {
-        const r = await fetch(
-          "/api/fechamentos",
+  async function fetchProdutos() {
+    try {
+      const response =
+        await fetch(
+          "/api/produtos",
           {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
+            cache: "no-store",
           }
         );
 
-        const data =
-          await r.json();
+      const data =
+        await response.json();
 
-        if (!r.ok) {
-          throw new Error(
-            data.error ||
-              "Erro ao fazer fechamento"
-          );
-        }
-
-        const numero =
-          data.fechamento?.numero;
-
-        showToast(
-          numero
-            ? `Fechamento #${String(
-                numero
-              ).padStart(
-                3,
-                "0"
-              )} realizado!`
-            : "Fechamento realizado!"
-        );
-
-        await fetchFechamentos();
-
-        /*
-         * Vai para a aba de fechamentos
-         */
-
-        setTab("fechamentos");
-
-        /*
-         * Abre automaticamente o fechamento
-         */
-
-        if (
-          data.fechamento?.id
-        ) {
-          await abrirFechamento(
-            Number(
-              data.fechamento.id
-            )
-          );
-        }
-      } catch (e: any) {
-        showToast(
-          e.message ||
-            "Erro ao fazer fechamento"
-        );
-      } finally {
-        setFazendoFechamento(false);
+      if (Array.isArray(data)) {
+        setProdutos(data);
       }
-    };
+    } catch {
+      showToast(
+        "Erro ao carregar produtos"
+      );
+    }
+  }
 
   /*
-   * ==========================================================
-   * CARREGAMENTO
-   * ==========================================================
+   * VENDAS ATUAIS
+   *
+   * A API /api/vendas deve retornar somente
+   * vendas ainda não fechadas.
    */
+  async function fetchVendas() {
+    try {
+      const response =
+        await fetch(
+          "/api/vendas",
+          {
+            cache: "no-store",
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (Array.isArray(data)) {
+        setVendas(data);
+      }
+    } catch {
+      showToast(
+        "Erro ao carregar vendas"
+      );
+    }
+  }
+
+  /*
+   * LOG
+   *
+   * Aqui buscamos todas as vendas,
+   * inclusive as já fechadas.
+   *
+   * A rota pode aceitar ?historico=true.
+   */
+  async function fetchHistoricoVendas() {
+    try {
+      const response =
+        await fetch(
+          "/api/vendas?historico=true",
+          {
+            cache: "no-store",
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (Array.isArray(data)) {
+        setVendasHistorico(data);
+      }
+    } catch {
+      /*
+       * Fallback:
+       *
+       * Se a API ainda não possuir
+       * ?historico=true, usamos as vendas
+       * que já foram carregadas.
+       */
+      setVendasHistorico(
+        vendas
+      );
+    }
+  }
+
+  async function fetchFechamentos() {
+    try {
+      const response =
+        await fetch(
+          "/api/fechamentos",
+          {
+            cache: "no-store",
+          }
+        );
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data =
+        await response.json();
+
+      if (Array.isArray(data)) {
+        setFechamentos(data);
+      }
+    } catch {
+      /*
+       * Não quebra o sistema caso
+       * a rota ainda não esteja criada.
+       */
+    }
+  }
 
   useEffect(() => {
     if (!logged) return;
@@ -575,32 +523,19 @@ export default function App() {
   useEffect(() => {
     if (!logged) return;
 
-    if (
-      tab === "fechamentos"
-    ) {
-      fetchFechamentos();
+    if (tab === "log") {
+      fetchHistoricoVendas();
     }
 
-    if (
-      tab === "log" ||
-      tab === "dash"
-    ) {
-      fetchVendas();
+    if (tab === "fechamentos") {
+      fetchFechamentos();
     }
   }, [tab, logged]);
 
-  /*
-   * ==========================================================
-   * LOGIN
-   * ==========================================================
-   */
-
   function doLogin() {
     if (
-      loginForm.user ===
-        "freezer" &&
-      loginForm.pass ===
-        savedPass
+      loginForm.user === "freezer" &&
+      loginForm.pass === savedPass
     ) {
       setLogged(true);
 
@@ -613,76 +548,68 @@ export default function App() {
         user: "",
         pass: "",
       });
-    } else {
-      showToast(
-        "Usuário ou senha inválidos"
-      );
+
+      return;
     }
+
+    showToast(
+      "Usuário ou senha incorretos"
+    );
   }
 
-  /*
-   * ==========================================================
-   * CARRINHO
-   * ==========================================================
-   */
-
   function addToCart(
-    p: Produto
+    produto: Produto
   ) {
-    if (p.qtd <= 0) {
+    if (produto.qtd <= 0) {
       return showToast(
         "Sem estoque"
       );
     }
 
-    setCart((prev) => {
-      const ex =
-        prev.find(
-          (c) =>
-            c.id === p.id
+    setCart((previous) => {
+      const existing =
+        previous.find(
+          (item) =>
+            item.id ===
+            produto.id
         );
 
-      if (ex) {
+      if (existing) {
         if (
-          ex.cartQtd >=
-          p.qtd
+          existing.cartQtd >=
+          produto.qtd
         ) {
           showToast(
             "Estoque máximo: " +
-              p.qtd
+              produto.qtd
           );
 
-          return prev;
+          return previous;
         }
 
-        return prev.map(
-          (c) =>
-            c.id === p.id
+        return previous.map(
+          (item) =>
+            item.id ===
+            produto.id
               ? {
-                  ...c,
+                  ...item,
                   cartQtd:
-                    c.cartQtd +
+                    item.cartQtd +
                     1,
                 }
-              : c
+              : item
         );
       }
 
       return [
-        ...prev,
+        ...previous,
         {
-          ...p,
+          ...produto,
           cartQtd: 1,
         },
       ];
     });
   }
-
-  /*
-   * ==========================================================
-   * FINALIZAR VENDA
-   * ==========================================================
-   */
 
   async function finalizarVenda() {
     if (cart.length === 0) {
@@ -693,27 +620,25 @@ export default function App() {
 
     const total =
       cart.reduce(
-        (s, i) =>
-          s +
-          parseFloat(
-            i.preco
-          ) *
-            i.cartQtd,
+        (sum, item) =>
+          sum +
+          (parseFloat(
+            item.preco
+          ) || 0) *
+            item.cartQtd,
         0
       );
 
     try {
-      const r =
+      const response =
         await fetch(
           "/api/vendas",
           {
             method: "POST",
-
             headers: {
               "Content-Type":
                 "application/json",
             },
-
             body: JSON.stringify({
               itens: cart,
               total,
@@ -724,9 +649,9 @@ export default function App() {
         );
 
       const data =
-        await r.json();
+        await response.json();
 
-      if (!r.ok) {
+      if (!response.ok) {
         throw new Error(
           data.error ||
             "Erro ao salvar venda"
@@ -734,33 +659,122 @@ export default function App() {
       }
 
       setCart([]);
-
       setDescricao("");
-
       setShowCheckout(false);
 
       await fetchProdutos();
-
       await fetchVendas();
+
+      setTab("dash");
 
       showToast(
         "Venda salva!"
       );
-
-      setTab("dash");
-    } catch (e: any) {
+    } catch (error: any) {
       showToast(
-        e.message ||
+        error?.message ||
           "Erro ao salvar venda"
       );
     }
   }
 
   /*
-   * ==========================================================
-   * DELETAR PRODUTO
-   * ==========================================================
+   * ============================================================
+   * FAZER FECHAMENTO
+   * ============================================================
+   *
+   * NÃO apagamos vendas diretamente pelo frontend.
+   *
+   * A rota /api/fechamentos recebe as vendas
+   * atuais e transforma o ciclo atual em
+   * um fechamento.
+   *
+   * As vendas continuam no Turso para histórico.
    */
+  async function fazerFechamento() {
+    if (vendas.length === 0) {
+      setShowConfirmFechamento(false);
+
+      return showToast(
+        "Não existem vendas para fechar."
+      );
+    }
+
+    setFazendoFechamento(
+      true
+    );
+
+    try {
+      const resumo =
+        criarResumo(
+          vendas
+        );
+
+      const response =
+        await fetch(
+          "/api/fechamentos",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              vendas,
+              resumo,
+              total: resumo.totalGeral,
+            }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "Erro ao fazer fechamento"
+        );
+      }
+
+      /*
+       * O backend deve marcar as vendas
+       * atuais como fechadas.
+       *
+       * Por isso fazemos uma nova busca.
+       * Elas não devem mais aparecer no DASH.
+       */
+      await fetchVendas();
+      await fetchFechamentos();
+
+      /*
+       * Atualiza o LOG também.
+       */
+      await fetchHistoricoVendas();
+
+      setShowConfirmFechamento(
+        false
+      );
+
+      setTab(
+        "fechamentos"
+      );
+
+      showToast(
+        data.message ||
+          "Fechamento realizado!"
+      );
+    } catch (error: any) {
+      showToast(
+        error?.message ||
+          "Erro ao fazer fechamento"
+      );
+    } finally {
+      setFazendoFechamento(
+        false
+      );
+    }
+  }
 
   async function deletarProduto(
     id: number
@@ -773,62 +787,120 @@ export default function App() {
       return;
     }
 
-    await fetch(
-      "/api/produtos?id=" +
-        id,
-      {
-        method: "DELETE",
-      }
-    );
+    try {
+      await fetch(
+        "/api/produtos?id=" +
+          id,
+        {
+          method: "DELETE",
+        }
+      );
 
-    fetchProdutos();
+      await fetchProdutos();
+
+      showToast(
+        "Produto removido"
+      );
+    } catch {
+      showToast(
+        "Erro ao remover produto"
+      );
+    }
+  }
+
+  async function deletarVenda(
+    id: number
+  ) {
+    if (
+      !confirm(
+        "Apagar venda #" +
+          id +
+          "? O estoque vai voltar."
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const response =
+        await fetch(
+          "/api/vendas?id=" +
+            id,
+          {
+            method: "DELETE",
+          }
+        );
+
+      if (!response.ok) {
+        const data =
+          await response
+            .json()
+            .catch(
+              () => ({})
+            );
+
+        throw new Error(
+          data.error ||
+            "Erro ao apagar venda"
+        );
+      }
+
+      await fetchVendas();
+      await fetchHistoricoVendas();
+      await fetchProdutos();
+
+      showToast(
+        "Venda apagada"
+      );
+    } catch (error: any) {
+      showToast(
+        error?.message ||
+          "Erro ao apagar venda"
+      );
+    }
   }
 
   /*
-   * ==========================================================
-   * RESUMO DO DASH
-   * ==========================================================
+   * ============================================================
+   * RESUMO
+   * ============================================================
    */
 
-  const resumoFechamento =
-    () => {
-      const mapa: Record<
-        string,
-        ProdutoResumo
-      > = {};
+  function criarResumo(
+    listaVendas: Venda[]
+  ) {
+    const mapa: Record<
+      string,
+      ProdutoResumo
+    > = {};
 
-      const porPagamento: Record<
-        string,
-        PagamentoResumo
-      > = {};
+    const porPagamento: Record<
+      string,
+      PagamentoResumo
+    > = {};
 
-      const porDescricao: Record<
-        string,
-        DescricaoResumo
-      > = {};
+    const porDescricao: Record<
+      string,
+      DescricaoResumo
+    > = {};
 
-      const semDescricao:
-        DescricaoResumo = {
+    const semDescricao: DescricaoResumo =
+      {
         nome: "Sem descrição",
         total: 0,
         produtos: {},
       };
 
-      vendas.forEach((v) => {
-        let itens: CartItem[] =
-          [];
-
-        try {
-          itens = JSON.parse(
-            v.itens
+    listaVendas.forEach(
+      (venda) => {
+        const itens =
+          parseItens(
+            venda.itens
           );
-        } catch {
-          itens = [];
-        }
 
         const pagamentoAtual =
           String(
-            v.pagamento ||
+            venda.pagamento ||
               "outro"
           )
             .trim()
@@ -850,29 +922,25 @@ export default function App() {
         porPagamento[
           pagamentoAtual
         ].total += Number(
-          v.total
+          venda.total || 0
         );
 
         const descricaoOriginal =
           String(
-            v.descricao ||
+            venda.descricao ||
               ""
           ).trim();
 
         const chaveDescricao =
-          descricaoOriginal.toLocaleLowerCase(
-            "pt-BR"
+          normalizarDescricao(
+            descricaoOriginal
           );
 
-        const temDescricao =
-          chaveDescricao.length >
-          0;
-
-        let grupoDescricao:
+        let grupo:
           | DescricaoResumo
           | null = null;
 
-        if (temDescricao) {
+        if (chaveDescricao) {
           if (
             !porDescricao[
               chaveDescricao
@@ -881,6 +949,10 @@ export default function App() {
             porDescricao[
               chaveDescricao
             ] = {
+              /*
+               * Mostra a primeira forma
+               * encontrada.
+               */
               nome:
                 descricaoOriginal,
               total: 0,
@@ -888,34 +960,39 @@ export default function App() {
             };
           }
 
-          grupoDescricao =
+          grupo =
             porDescricao[
               chaveDescricao
             ];
 
-          grupoDescricao.total +=
-            Number(v.total);
+          grupo.total += Number(
+            venda.total || 0
+          );
         } else {
-          grupoDescricao =
+          grupo =
             semDescricao;
 
           semDescricao.total +=
-            Number(v.total);
+            Number(
+              venda.total || 0
+            );
         }
 
         itens.forEach(
-          (it) => {
+          (item) => {
             const nome =
-              it.nome;
+              String(
+                item.nome
+              ).trim();
 
             const qtd =
               Number(
-                it.cartQtd
+                item.cartQtd
               ) || 0;
 
             const preco =
               parseFloat(
-                it.preco
+                item.preco
               ) || 0;
 
             const valor =
@@ -941,12 +1018,11 @@ export default function App() {
             ) {
               porPagamento[
                 pagamentoAtual
-              ].produtos[
-                nome
-              ] = {
-                qtd: 0,
-                total: 0,
-              };
+              ].produtos[nome] =
+                {
+                  qtd: 0,
+                  total: 0,
+                };
             }
 
             porPagamento[
@@ -962,10 +1038,12 @@ export default function App() {
             ].total += valor;
 
             if (
-              !grupoDescricao
-                .produtos[nome]
+              grupo &&
+              !grupo.produtos[
+                nome
+              ]
             ) {
-              grupoDescricao.produtos[
+              grupo.produtos[
                 nome
               ] = {
                 qtd: 0,
@@ -973,197 +1051,150 @@ export default function App() {
               };
             }
 
-            grupoDescricao.produtos[
-              nome
-            ].qtd += qtd;
+            if (grupo) {
+              grupo.produtos[
+                nome
+              ].qtd += qtd;
 
-            grupoDescricao.produtos[
-              nome
-            ].total += valor;
+              grupo.produtos[
+                nome
+              ].total += valor;
+            }
           }
         );
-      });
-
-      const descricoesOrdenadas =
-        Object.entries(
-          porDescricao
-        ).sort(
-          (a, b) =>
-            a[1].nome.localeCompare(
-              b[1].nome,
-              "pt-BR",
-              {
-                sensitivity:
-                  "base",
-              }
-            )
-        );
-
-      return {
-        mapa,
-        porPagamento,
-        porDescricao:
-          descricoesOrdenadas,
-        semDescricao,
-        totalGeral:
-          vendas.reduce(
-            (s, v) =>
-              s +
-              Number(
-                v.total
-              ),
-            0
-          ),
-      };
-    };
-
-  /*
-   * ==========================================================
-   * FORMATAÇÃO
-   * ==========================================================
-   */
-
-  function moeda(
-    valor: number
-  ) {
-    return (
-      "R$ " +
-      Number(valor || 0).toFixed(
-        2
-      )
-    );
-  }
-
-  function dataHora(
-    data: string
-  ) {
-    return new Date(
-      data
-    ).toLocaleString(
-      "pt-BR"
-    );
-  }
-
-  function dataFechamento(
-    data: string
-  ) {
-    return new Date(
-      data
-    ).toLocaleDateString(
-      "pt-BR",
-      {
-        day: "2-digit",
-        month: "long",
-        year: "numeric",
       }
     );
-  }
 
-  /*
-   * ==========================================================
-   * ÍCONE PAGAMENTO
-   * ==========================================================
-   */
-
-  function pagamentoIcon(
-    pagamento: string
-  ) {
-    if (
-      pagamento ===
-      "pix"
-    )
-      return "qr_code";
-
-    if (
-      pagamento ===
-      "dinheiro"
-    )
-      return "payments";
-
-    if (
-      pagamento ===
-      "cartao"
-    )
-      return "credit_card";
-
-    return "receipt_long";
-  }
-
-  /*
-   * ==========================================================
-   * LOG - PESQUISA
-   * ==========================================================
-   */
-
-  const vendasFiltradas =
-    vendas
-      .slice()
-      .sort(
+    const descricoesOrdenadas =
+      Object.entries(
+        porDescricao
+      ).sort(
         (a, b) =>
-          new Date(
-            b.created_at
-          ).getTime() -
-          new Date(
-            a.created_at
-          ).getTime()
-      )
-      .filter((v) => {
-        const busca =
-          pesquisaLog
-            .trim()
-            .toLocaleLowerCase(
-              "pt-BR"
-            );
+          a[1].nome.localeCompare(
+            b[1].nome,
+            "pt-BR",
+            {
+              sensitivity:
+                "base",
+            }
+          )
+      );
 
-        if (!busca) {
-          return true;
-        }
-
-        let itens: CartItem[] =
-          [];
-
-        try {
-          itens =
-            JSON.parse(
-              v.itens
-            );
-        } catch {
-          itens = [];
-        }
-
-        const textoProdutos =
-          itens
-            .map(
-              (i) =>
-                i.nome
-            )
-            .join(" ");
-
-        const texto =
-          [
-            v.id,
-            v.pagamento,
-            v.descricao,
-            v.created_at,
-            dataHora(
-              v.created_at
+    return {
+      mapa,
+      porPagamento,
+      porDescricao:
+        descricoesOrdenadas,
+      semDescricao,
+      totalGeral:
+        listaVendas.reduce(
+          (sum, venda) =>
+            sum +
+            Number(
+              venda.total || 0
             ),
-            textoProdutos,
+          0
+        ),
+    };
+  }
+
+  const resumoAtual =
+    useMemo(
+      () =>
+        criarResumo(vendas),
+      [vendas]
+    );
+
+  const totalCarrinho =
+    cart.reduce(
+      (sum, item) =>
+        sum +
+        (parseFloat(
+          item.preco
+        ) || 0) *
+          item.cartQtd,
+      0
+    );
+
+  const totalQtdCarrinho =
+    cart.reduce(
+      (sum, item) =>
+        sum + item.cartQtd,
+      0
+    );
+
+  const produtosAtivos =
+    produtos.filter(
+      (produto) =>
+        produto.qtd > 0
+    );
+
+  /*
+   * ============================================================
+   * LOG - PESQUISA
+   * ============================================================
+   */
+
+  const vendasLogFiltradas =
+    useMemo(() => {
+      const busca =
+        logBusca
+          .trim()
+          .toLocaleLowerCase(
+            "pt-BR"
+          );
+
+      if (!busca) {
+        return vendasHistorico;
+      }
+
+      return vendasHistorico.filter(
+        (venda) => {
+          const itens =
+            parseItens(
+              venda.itens
+            );
+
+          const nomes =
+            itens
+              .map(
+                (item) =>
+                  item.nome
+              )
+              .join(" ");
+
+          const texto = [
+            String(
+              venda.id
+            ),
+            formatarData(
+              venda.created_at
+            ),
+            venda.descricao ||
+              "",
+            venda.pagamento ||
+              "",
+            nomes,
           ]
             .join(" ")
             .toLocaleLowerCase(
               "pt-BR"
             );
 
-        return texto.includes(
-          busca
-        );
-      });
+          return texto.includes(
+            busca
+          );
+        }
+      );
+    }, [
+      vendasHistorico,
+      logBusca,
+    ]);
 
   /*
-   * ==========================================================
+   * ============================================================
    * LOGIN
-   * ==========================================================
+   * ============================================================
    */
 
   if (!logged) {
@@ -1207,8 +1238,8 @@ export default function App() {
             onChange={(e) =>
               setLoginForm({
                 ...loginForm,
-                user: e.target
-                  .value,
+                user:
+                  e.target.value,
               })
             }
             className={
@@ -1228,15 +1259,17 @@ export default function App() {
             onChange={(e) =>
               setLoginForm({
                 ...loginForm,
-                pass: e.target
-                  .value,
+                pass:
+                  e.target.value,
               })
             }
-            onKeyDown={(e) =>
-              e.key ===
-                "Enter" &&
-              doLogin()
-            }
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter"
+              ) {
+                doLogin();
+              }
+            }}
             className={
               "mt-3 w-full p-3 rounded-xl bg-transparent border " +
               (dark
@@ -1264,44 +1297,10 @@ export default function App() {
     ? "bg-zinc-900 border-zinc-800"
     : "bg-white border-zinc-200";
 
-  const produtosAtivos =
-    produtos.filter(
-      (p) => p.qtd > 0
-    );
-
-  const totalCarrinho =
-    cart.reduce(
-      (s, i) =>
-        s +
-        parseFloat(
-          i.preco
-        ) *
-          i.cartQtd,
-      0
-    );
-
-  const totalQtd =
-    cart.reduce(
-      (s, i) =>
-        s + i.cartQtd,
-      0
-    );
-
-  const activeIndex =
-    TABS.findIndex(
-      (t) => t.id === tab
-    );
-
-  /*
-   * ==========================================================
-   * INTERFACE
-   * ==========================================================
-   */
-
   return (
     <div
       className={
-        "min-h-screen flex flex-col items-center " +
+        "min-h-screen flex flex-col items-center overflow-x-hidden " +
         bg
       }
     >
@@ -1311,35 +1310,32 @@ export default function App() {
       />
 
       {toast && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-white px-5 py-3 rounded-full text-sm z-[200] border border-zinc-700 shadow-2xl">
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-white px-5 py-3 rounded-full text-sm z-[200] border border-zinc-700 max-w-[90%] text-center">
           {toast}
         </div>
       )}
 
-      <header className="w-full max-w-[1200px] px-6 py-4 flex justify-between items-center">
-        <div>
-          <div className="font-bold">
-            Freezer da Amanda
-          </div>
-
-          <div className="text-[10px] opacity-40 uppercase">
-            Sistema de vendas
-          </div>
+      <header className="w-full max-w-[1200px] px-5 sm:px-6 py-4 flex justify-between">
+        <div className="font-bold">
+          Freezer da Amanda
         </div>
 
-        <div className="text-xs opacity-40">
-          {TABS.find(
-            (x) =>
-              x.id === tab
-          )?.label}
+        <div className="text-xs opacity-50">
+          {vendas.length > 0
+            ? `${vendas.length} venda${
+                vendas.length !== 1
+                  ? "s"
+                  : ""
+              } em aberto`
+            : "Nenhuma venda em aberto"}
         </div>
       </header>
 
-      <main className="w-full max-w-[1200px] flex-1 px-6 pb-48 pt-2">
+      <main className="w-full max-w-[1200px] flex-1 px-4 sm:px-6 pb-[170px] pt-2">
 
-        {/* =====================================================
+        {/* ======================================================
             HOME
-        ===================================================== */}
+        ====================================================== */}
 
         {tab === "home" && (
           <div>
@@ -1348,51 +1344,58 @@ export default function App() {
             </h1>
 
             <p className="text-xs opacity-60">
-              {produtosAtivos.length}{" "}
-              produtos disponíveis
+              {produtosAtivos.length} produtos
+              disponíveis
             </p>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
               {produtosAtivos.map(
-                (p) => (
+                (produto) => (
                   <div
-                    key={p.id}
+                    key={
+                      produto.id
+                    }
                     className={
                       "rounded-2xl border overflow-hidden " +
                       card
                     }
                   >
                     <img
-                      src={p.imagem}
+                      src={
+                        produto.imagem
+                      }
                       className="w-full h-28 object-contain bg-white p-2"
                     />
 
                     <div className="p-3">
                       <p className="text-sm font-semibold truncate">
-                        {p.nome}
+                        {
+                          produto.nome
+                        }
                       </p>
 
                       <p className="text-[11px] opacity-50">
                         Estoque:{" "}
-                        {p.qtd}
+                        {
+                          produto.qtd
+                        }
                       </p>
 
-                      <div className="flex justify-between items-center mt-2">
-                        <b>
-                          {moeda(
-                            Number(
-                              p.preco
-                            )
-                          )}
+                      <div className="flex justify-between items-center mt-2 gap-2">
+                        <b className="text-sm">
+                          R${" "}
+                          {
+                            produto.preco
+                          }
                         </b>
 
                         <button
                           onClick={() =>
                             addToCart(
-                              p
+                              produto
                             )
                           }
-                          className="w-8 h-8 rounded-full bg-[#D6FF57] text-black flex items-center justify-center"
+                          className="w-8 h-8 shrink-0 rounded-full bg-[#D6FF57] text-black flex items-center justify-center"
                         >
                           <span className="material-symbols-rounded">
                             add
@@ -1407,9 +1410,9 @@ export default function App() {
           </div>
         )}
 
-        {/* =====================================================
+        {/* ======================================================
             PDV
-        ===================================================== */}
+        ====================================================== */}
 
         {tab === "pdv" && (
           <div className="max-w-[700px] mx-auto">
@@ -1426,29 +1429,36 @@ export default function App() {
               className={
                 "mt-4 rounded-2xl border divide-y " +
                 card +
-                " divide-zinc-800"
+                " divide-zinc-800 overflow-hidden"
               }
             >
               {produtos.map(
-                (p) => (
+                (produto) => (
                   <div
-                    key={p.id}
+                    key={
+                      produto.id
+                    }
                     className={
                       "p-4 flex gap-3 items-center " +
-                      (p.qtd <= 0
+                      (produto.qtd <=
+                      0
                         ? "opacity-40"
                         : "")
                     }
                   >
                     <img
-                      src={p.imagem}
-                      className="w-12 h-12 rounded-xl bg-white p-1 object-contain"
+                      src={
+                        produto.imagem
+                      }
+                      className="w-12 h-12 rounded-xl bg-white p-1 object-contain shrink-0"
                     />
 
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold">
-                        {p.nome}{" "}
-                        {p.qtd <=
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold truncate">
+                        {
+                          produto.nome
+                        }{" "}
+                        {produto.qtd <=
                           0 &&
                           "(ESGOTADO)"}
                       </p>
@@ -1456,45 +1466,47 @@ export default function App() {
                       <p className="text-xs opacity-60">
                         R${" "}
                         {
-                          p.preco
+                          produto.preco
                         }{" "}
                         •{" "}
-                        {p.qtd}{" "}
+                        {
+                          produto.qtd
+                        }{" "}
                         un
                       </p>
                     </div>
 
                     <button
                       onClick={async () => {
-                        const n =
+                        const quantidade =
                           prompt(
                             "Nova qtd:",
                             String(
-                              p.qtd
+                              produto.qtd
                             )
                           );
 
                         if (
-                          n ===
+                          quantidade ===
                           null
-                        )
+                        ) {
                           return;
+                        }
 
                         await fetch(
                           "/api/produtos",
                           {
                             method:
                               "PUT",
-                            headers:
-                              {
-                                "Content-Type":
-                                  "application/json",
-                              },
+                            headers: {
+                              "Content-Type":
+                                "application/json",
+                            },
                             body: JSON.stringify(
                               {
-                                id: p.id,
+                                id: produto.id,
                                 qtd: Number(
-                                  n
+                                  quantidade
                                 ),
                               }
                             ),
@@ -1503,7 +1515,7 @@ export default function App() {
 
                         fetchProdutos();
                       }}
-                      className="px-3 py-1 rounded-full bg-zinc-800 text-white text-xs"
+                      className="px-3 py-1 rounded-full bg-zinc-800 text-white text-xs shrink-0"
                     >
                       Editar
                     </button>
@@ -1511,10 +1523,10 @@ export default function App() {
                     <button
                       onClick={() =>
                         deletarProduto(
-                          p.id
+                          produto.id
                         )
                       }
-                      className="w-8 h-8 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center"
+                      className="w-8 h-8 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center shrink-0"
                     >
                       <span className="material-symbols-rounded text-[18px]">
                         delete
@@ -1527,9 +1539,9 @@ export default function App() {
           </div>
         )}
 
-        {/* =====================================================
+        {/* ======================================================
             ADICIONAR
-        ===================================================== */}
+        ====================================================== */}
 
         {tab === "add" && (
           <div className="max-w-[520px] mx-auto">
@@ -1538,8 +1550,8 @@ export default function App() {
             </h1>
 
             <p className="text-xs opacity-60">
-              Se o nome for igual,
-              soma no estoque.
+              Se nome igual, soma no
+              estoque.
             </p>
 
             <AddProduto
@@ -1553,323 +1565,120 @@ export default function App() {
           </div>
         )}
 
-        {/* =====================================================
-            DASH
-        ===================================================== */}
+        {/* ======================================================
+            DASHBOARD
+        ====================================================== */}
 
         {tab === "dash" && (
-          <div className="max-w-[700px] mx-auto">
-
-            <div className="flex justify-between items-start gap-3">
+          <div className="max-w-[800px] mx-auto">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
               <div>
                 <h1 className="text-3xl font-bold">
                   Dashboard
                 </h1>
 
-                <p className="text-xs opacity-50 mt-1">
-                  Fechamento geral e
-                  acertos
+                <p className="text-xs opacity-60">
+                  Ciclo atual • vendas
+                  ainda não fechadas
                 </p>
               </div>
 
-              <button
-                onClick={
-                  fazerFechamento
-                }
-                disabled={
-                  fazendoFechamento
-                }
-                className="px-4 py-3 rounded-xl bg-[#D6FF57] text-black font-bold text-xs whitespace-nowrap"
-              >
-                {fazendoFechamento
-                  ? "Fechando..."
-                  : "Fazer Fechamento"}
-              </button>
+              {vendas.length >
+                0 && (
+                <button
+                  onClick={() =>
+                    setShowConfirmFechamento(
+                      true
+                    )
+                  }
+                  className="w-full sm:w-auto px-5 py-3 rounded-xl bg-[#D6FF57] text-black font-bold flex items-center justify-center gap-2"
+                >
+                  <span className="material-symbols-rounded">
+                    task_alt
+                  </span>
+
+                  Fazer fechamento
+                </button>
+              )}
             </div>
 
-            {(() => {
-              const {
-                mapa,
-                porPagamento,
-                porDescricao,
-                semDescricao,
-                totalGeral,
-              } =
-                resumoFechamento();
+            <div className="mt-4 space-y-4">
 
-              return (
-                <div className="mt-4 space-y-4">
+              {/* FECHAMENTO GERAL */}
 
-                  {/* =========================================
-                      FECHAMENTO GERAL
-                  ========================================= */}
+              <div
+                className={
+                  "p-4 rounded-2xl border " +
+                  card
+                }
+              >
+                <p className="font-bold">
+                  💰 Fechamento Geral
+                </p>
 
-                  <div
-                    className={
-                      "p-4 rounded-2xl border " +
-                      card
-                    }
-                  >
-                    <p className="font-bold">
-                      💰 Fechamento Geral
-                    </p>
+                <p className="text-3xl font-bold mt-2">
+                  {dinheiro(
+                    resumoAtual.totalGeral
+                  )}
+                </p>
 
-                    <p className="text-3xl font-bold mt-2">
-                      {moeda(
-                        totalGeral
-                      )}
-                    </p>
+                <p className="text-xs opacity-50 mt-1">
+                  {vendas.length} vendas
+                  no ciclo atual
+                </p>
 
-                    <p className="text-xs opacity-50 mt-1">
-                      {vendas.length}{" "}
-                      vendas
-                    </p>
+                <div className="mt-4 space-y-3">
+                  {Object.entries(
+                    resumoAtual.porPagamento
+                  ).map(
+                    ([
+                      pagamentoAtual,
+                      dados,
+                    ]) => (
+                      <div
+                        key={
+                          pagamentoAtual
+                        }
+                        className="rounded-2xl bg-zinc-800 text-white overflow-hidden"
+                      >
+                        <div className="p-3 flex justify-between items-center border-b border-zinc-700">
+                          <div className="flex items-center gap-2">
+                            <span className="material-symbols-rounded text-[20px]">
+                              {pagamentoAtual ===
+                              "pix"
+                                ? "qr_code"
+                                : pagamentoAtual ===
+                                  "dinheiro"
+                                ? "payments"
+                                : pagamentoAtual ===
+                                  "cartao"
+                                ? "credit_card"
+                                : "receipt_long"}
+                            </span>
 
-                    {/* PAGAMENTOS */}
-
-                    <div className="mt-5 space-y-3">
-
-                      {Object.entries(
-                        porPagamento
-                      ).map(
-                        ([
-                          pagamentoAtual,
-                          dados,
-                        ]) => (
-                          <div
-                            key={
-                              pagamentoAtual
-                            }
-                            className="rounded-2xl bg-zinc-800 text-white overflow-hidden"
-                          >
-                            <div className="p-3 flex justify-between items-center border-b border-zinc-700">
-                              <div className="flex items-center gap-2">
-                                <span className="material-symbols-rounded text-[20px]">
-                                  {pagamentoIcon(
-                                    pagamentoAtual
-                                  )}
-                                </span>
-
-                                <span className="font-bold uppercase text-sm">
-                                  {
-                                    pagamentoAtual
-                                  }
-                                </span>
-                              </div>
-
-                              <b className="text-[#D6FF57]">
-                                {moeda(
-                                  dados.total
-                                )}
-                              </b>
-                            </div>
-
-                            <div className="p-3">
-                              <p className="text-[10px] uppercase opacity-50 mb-2">
-                                Produtos e
-                                quantidades
-                              </p>
-
-                              <div className="space-y-2">
-                                {Object.entries(
-                                  dados.produtos
-                                ).map(
-                                  ([
-                                    nome,
-                                    produto,
-                                  ]) => (
-                                    <div
-                                      key={
-                                        nome
-                                      }
-                                      className="flex justify-between items-center text-xs"
-                                    >
-                                      <div className="flex items-center gap-2">
-                                        <span className="font-bold text-[#D6FF57]">
-                                          {
-                                            produto.qtd
-                                          }x
-                                        </span>
-
-                                        <span>
-                                          {
-                                            nome
-                                          }
-                                        </span>
-                                      </div>
-
-                                      <span className="opacity-60">
-                                        {moeda(
-                                          produto.total
-                                        )}
-                                      </span>
-                                    </div>
-                                  )
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      )}
-
-                      {Object.keys(
-                        porPagamento
-                      ).length ===
-                        0 && (
-                        <p className="text-xs opacity-50">
-                          Nenhuma venda
-                          registrada.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* =========================================
-                      FECHAMENTOS POR DESCRIÇÃO
-                  ========================================= */}
-
-                  <div
-                    className={
-                      "p-4 rounded-2xl border " +
-                      card
-                    }
-                  >
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="font-bold">
-                          👤 Fechamentos por
-                          descrição
-                        </p>
-
-                        <p className="text-xs opacity-50 mt-1">
-                          Eduardo, João,
-                          clientes, fiados
-                          e outros
-                        </p>
-                      </div>
-
-                      <span className="material-symbols-rounded opacity-50">
-                        groups
-                      </span>
-                    </div>
-
-                    <div className="mt-4 space-y-3">
-
-                      {porDescricao.map(
-                        ([
-                          chave,
-                          dados,
-                        ]) => (
-                          <div
-                            key={
-                              chave
-                            }
-                            className="rounded-2xl bg-zinc-800 text-white overflow-hidden"
-                          >
-                            <div className="p-3 flex justify-between items-center border-b border-zinc-700">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 rounded-full bg-[#D6FF57] text-black flex items-center justify-center">
-                                  <span className="material-symbols-rounded text-[18px]">
-                                    person
-                                  </span>
-                                </div>
-
-                                <div>
-                                  <p className="font-bold text-sm">
-                                    {
-                                      dados.nome
-                                    }
-                                  </p>
-
-                                  <p className="text-[10px] opacity-50">
-                                    Produtos
-                                    vendidos
-                                  </p>
-                                </div>
-                              </div>
-
-                              <b className="text-[#D6FF57]">
-                                {moeda(
-                                  dados.total
-                                )}
-                              </b>
-                            </div>
-
-                            <div className="p-3 space-y-2">
-                              {Object.entries(
-                                dados.produtos
-                              ).map(
-                                ([
-                                  nome,
-                                  produto,
-                                ]) => (
-                                  <div
-                                    key={
-                                      nome
-                                    }
-                                    className="flex justify-between text-xs"
-                                  >
-                                    <span>
-                                      <b className="text-[#D6FF57]">
-                                        {
-                                          produto.qtd
-                                        }x
-                                      </b>{" "}
-                                      {
-                                        nome
-                                      }
-                                    </span>
-
-                                    <span className="opacity-60">
-                                      {moeda(
-                                        produto.total
-                                      )}
-                                    </span>
-                                  </div>
-                                )
-                              )}
-                            </div>
-                          </div>
-                        )
-                      )}
-
-                      {/* SEM DESCRIÇÃO */}
-
-                      {Object.keys(
-                        semDescricao.produtos
-                      ).length >
-                        0 && (
-                        <div className="rounded-2xl bg-zinc-800 text-white overflow-hidden">
-                          <div className="p-3 flex justify-between items-center border-b border-zinc-700">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center">
-                                <span className="material-symbols-rounded">
-                                  receipt_long
-                                </span>
-                              </div>
-
-                              <div>
-                                <p className="font-bold text-sm">
-                                  Sem descrição
-                                </p>
-
-                                <p className="text-[10px] opacity-50">
-                                  Vendas sem
-                                  observação
-                                </p>
-                              </div>
-                            </div>
-
-                            <b className="text-[#D6FF57]">
-                              {moeda(
-                                semDescricao.total
-                              )}
-                            </b>
+                            <span className="font-bold uppercase text-sm">
+                              {
+                                pagamentoAtual
+                              }
+                            </span>
                           </div>
 
-                          <div className="p-3 space-y-2">
+                          <b className="text-[#D6FF57]">
+                            {dinheiro(
+                              dados.total
+                            )}
+                          </b>
+                        </div>
+
+                        <div className="p-3">
+                          <p className="text-[10px] uppercase opacity-50 mb-2">
+                            Produtos e
+                            quantidades
+                          </p>
+
+                          <div className="space-y-2">
                             {Object.entries(
-                              semDescricao.produtos
+                              dados.produtos
                             ).map(
                               ([
                                 nome,
@@ -1879,21 +1688,25 @@ export default function App() {
                                   key={
                                     nome
                                   }
-                                  className="flex justify-between text-xs"
+                                  className="flex justify-between items-center text-xs gap-3"
                                 >
-                                  <span>
-                                    <b className="text-[#D6FF57]">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="font-bold text-[#D6FF57] shrink-0">
                                       {
                                         produto.qtd
-                                      }x
-                                    </b>{" "}
-                                    {
-                                      nome
-                                    }
-                                  </span>
+                                      }
+                                      x
+                                    </span>
 
-                                  <span className="opacity-60">
-                                    {moeda(
+                                    <span className="truncate">
+                                      {
+                                        nome
+                                      }
+                                    </span>
+                                  </div>
+
+                                  <span className="opacity-70 shrink-0">
+                                    {dinheiro(
                                       produto.total
                                     )}
                                   </span>
@@ -1902,231 +1715,361 @@ export default function App() {
                             )}
                           </div>
                         </div>
-                      )}
+                      </div>
+                    )
+                  )}
 
-                      {porDescricao.length ===
-                        0 &&
-                        Object.keys(
-                          semDescricao.produtos
-                        ).length ===
-                          0 && (
-                          <p className="text-xs opacity-50">
-                            Nenhuma
-                            descrição
-                            registrada.
-                          </p>
-                        )}
-                    </div>
-                  </div>
+                  {Object.keys(
+                    resumoAtual.porPagamento
+                  ).length ===
+                    0 && (
+                    <p className="text-xs opacity-50">
+                      Nenhuma venda no
+                      ciclo atual.
+                    </p>
+                  )}
+                </div>
+              </div>
 
-                  {/* =========================================
-                      PRODUTOS GERAIS
-                  ========================================= */}
+              {/* DESCRIÇÕES */}
 
-                  <div
-                    className={
-                      "p-4 rounded-2xl border " +
-                      card
-                    }
-                  >
+              <div
+                className={
+                  "p-4 rounded-2xl border " +
+                  card
+                }
+              >
+                <div className="flex justify-between items-center">
+                  <div>
                     <p className="font-bold">
-                      📦 Produtos Vendidos
+                      👤 Fechamentos por
+                      descrição
                     </p>
 
-                    <div className="mt-3 space-y-2 text-sm">
-                      {Object.entries(
-                        mapa
-                      ).map(
-                        ([
-                          nome,
-                          d,
-                        ]) => (
-                          <div
-                            key={
-                              nome
-                            }
-                            className="flex justify-between"
-                          >
-                            <span>
-                              {d.qtd}x{" "}
-                              {nome}
-                            </span>
-
-                            <b>
-                              {moeda(
-                                d.total
-                              )}
-                            </b>
-                          </div>
-                        )
-                      )}
-
-                      {Object.keys(
-                        mapa
-                      ).length ===
-                        0 && (
-                        <p className="opacity-50 text-xs">
-                          Nenhuma venda.
-                        </p>
-                      )}
-                    </div>
+                    <p className="text-xs opacity-50 mt-1">
+                      Eduardo/eduardo são
+                      agrupados.
+                    </p>
                   </div>
 
+                  <span className="material-symbols-rounded opacity-50">
+                    groups
+                  </span>
                 </div>
-              );
-            })()}
+
+                <div className="mt-4 space-y-3">
+                  {resumoAtual.porDescricao.map(
+                    ([
+                      chave,
+                      dados,
+                    ]) => (
+                      <div
+                        key={chave}
+                        className="rounded-2xl bg-zinc-800 text-white overflow-hidden"
+                      >
+                        <div className="p-3 flex justify-between items-center border-b border-zinc-700">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-[#D6FF57] text-black flex items-center justify-center shrink-0">
+                              <span className="material-symbols-rounded text-[18px]">
+                                person
+                              </span>
+                            </div>
+
+                            <p className="font-bold text-sm">
+                              {
+                                dados.nome
+                              }
+                            </p>
+                          </div>
+
+                          <b className="text-[#D6FF57]">
+                            {dinheiro(
+                              dados.total
+                            )}
+                          </b>
+                        </div>
+
+                        <div className="p-3 space-y-2">
+                          {Object.entries(
+                            dados.produtos
+                          ).map(
+                            ([
+                              nome,
+                              produto,
+                            ]) => (
+                              <div
+                                key={
+                                  nome
+                                }
+                                className="flex justify-between items-center text-xs gap-3"
+                              >
+                                <span>
+                                  <b className="text-[#D6FF57]">
+                                    {
+                                      produto.qtd
+                                    }
+                                    x
+                                  </b>{" "}
+                                  {
+                                    nome
+                                  }
+                                </span>
+
+                                <span className="opacity-70">
+                                  {dinheiro(
+                                    produto.total
+                                  )}
+                                </span>
+                              </div>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    )
+                  )}
+
+                  {Object.keys(
+                    resumoAtual
+                      .semDescricao
+                      .produtos
+                  ).length >
+                    0 && (
+                    <div className="rounded-2xl bg-zinc-800 text-white overflow-hidden">
+                      <div className="p-3 flex justify-between items-center border-b border-zinc-700">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center">
+                            <span className="material-symbols-rounded text-[18px]">
+                              receipt_long
+                            </span>
+                          </div>
+
+                          <p className="font-bold text-sm">
+                            Sem descrição
+                          </p>
+                        </div>
+
+                        <b className="text-[#D6FF57]">
+                          {dinheiro(
+                            resumoAtual
+                              .semDescricao
+                              .total
+                          )}
+                        </b>
+                      </div>
+
+                      <div className="p-3 space-y-2">
+                        {Object.entries(
+                          resumoAtual
+                            .semDescricao
+                            .produtos
+                        ).map(
+                          ([
+                            nome,
+                            produto,
+                          ]) => (
+                            <div
+                              key={
+                                nome
+                              }
+                              className="flex justify-between text-xs"
+                            >
+                              <span>
+                                <b className="text-[#D6FF57]">
+                                  {
+                                    produto.qtd
+                                  }
+                                  x
+                                </b>{" "}
+                                {
+                                  nome
+                                }
+                              </span>
+
+                              <span className="opacity-70">
+                                {dinheiro(
+                                  produto.total
+                                )}
+                              </span>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {resumoAtual.porDescricao
+                    .length ===
+                    0 &&
+                    Object.keys(
+                      resumoAtual
+                        .semDescricao
+                        .produtos
+                    ).length ===
+                      0 && (
+                      <p className="text-xs opacity-50">
+                        Nenhuma descrição
+                        registrada.
+                      </p>
+                    )}
+                </div>
+              </div>
+
+              {/* PRODUTOS */}
+
+              <div
+                className={
+                  "p-4 rounded-2xl border " +
+                  card
+                }
+              >
+                <p className="font-bold">
+                  📦 Produtos vendidos
+                </p>
+
+                <div className="mt-3 space-y-2 text-sm">
+                  {Object.entries(
+                    resumoAtual.mapa
+                  ).map(
+                    ([
+                      nome,
+                      dados,
+                    ]) => (
+                      <div
+                        key={nome}
+                        className="flex justify-between gap-3"
+                      >
+                        <span>
+                          {
+                            dados.qtd
+                          }
+                          x{" "}
+                          {nome}
+                        </span>
+
+                        <b>
+                          {dinheiro(
+                            dados.total
+                          )}
+                        </b>
+                      </div>
+                    )
+                  )}
+
+                  {Object.keys(
+                    resumoAtual.mapa
+                  ).length ===
+                    0 && (
+                    <p className="opacity-50">
+                      Nenhuma venda.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
-        {/* =====================================================
+        {/* ======================================================
             FECHAMENTOS
-        ===================================================== */}
+        ====================================================== */}
 
         {tab ===
           "fechamentos" && (
-          <div className="max-w-[700px] mx-auto">
+          <div className="max-w-[800px] mx-auto">
+            <h1 className="text-3xl font-bold">
+              Fechamentos
+            </h1>
 
-            <div className="flex justify-between items-start gap-3">
-              <div>
-                <h1 className="text-3xl font-bold">
-                  Fechamentos
-                </h1>
-
-                <p className="text-xs opacity-50 mt-1">
-                  Histórico dos acertos
-                  realizados
-                </p>
-              </div>
-
-              <button
-                onClick={
-                  fazerFechamento
-                }
-                disabled={
-                  fazendoFechamento
-                }
-                className="px-4 py-3 rounded-xl bg-[#D6FF57] text-black font-bold text-xs"
-              >
-                {fazendoFechamento
-                  ? "Fechando..."
-                  : "Fazer Fechamento"}
-              </button>
-            </div>
+            <p className="text-xs opacity-60">
+              Histórico dos ciclos encerrados
+            </p>
 
             <div className="mt-5 space-y-3">
-
               {fechamentos.map(
-                (f) => {
+                (
+                  fechamento,
+                  index
+                ) => {
                   const aberto =
                     fechamentoAberto ===
-                    f.id;
+                    fechamento.id;
 
                   return (
                     <div
-                      key={f.id}
+                      key={
+                        fechamento.id
+                      }
                       className={
                         "rounded-2xl border overflow-hidden " +
                         card
                       }
                     >
-
-                      {/* BOTÃO DO FECHAMENTO */}
-
                       <button
                         onClick={() =>
-                          abrirFechamento(
-                            f.id
+                          setFechamentoAberto(
+                            aberto
+                              ? null
+                              : fechamento.id
                           )
                         }
-                        className="w-full p-4 text-left"
+                        className="w-full p-4 flex items-center justify-between text-left"
                       >
-                        <div className="flex justify-between items-center">
-
-                          <div className="flex items-center gap-3">
-
-                            <div className="w-11 h-11 rounded-xl bg-[#D6FF57] text-black flex items-center justify-center font-bold text-xs">
-                              #
-                              {String(
-                                f.numero
-                              ).padStart(
-                                3,
-                                "0"
-                              )}
-                            </div>
-
-                            <div>
-                              <p className="font-bold">
-                                #
-                                {String(
-                                  f.numero
-                                ).padStart(
-                                  3,
-                                  "0"
-                                )}{" "}
-                                —{" "}
-                                {dataFechamento(
-                                  f.created_at
-                                )}
-                              </p>
-
-                              <p className="text-[11px] opacity-50 mt-1">
-                                {f.quantidade_vendas}{" "}
-                                vendas •{" "}
-                                {f.quantidade_itens}{" "}
-                                itens
-                              </p>
-                            </div>
-
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-[#D6FF57] text-black flex items-center justify-center font-bold">
+                            #
+                            {numeroFechamento(
+                              fechamento,
+                              index
+                            )}
                           </div>
 
-                          <div className="text-right">
+                          <div>
+                            <p className="font-bold">
+                              #
+                              {numeroFechamento(
+                                fechamento,
+                                index
+                              )}{" "}
+                              {formatarDataFechamento(
+                                fechamento.created_at
+                              )}
+                            </p>
 
-                            <b className="text-[#D6FF57]">
-                              {moeda(
-                                f.total
+                            <p className="text-xs opacity-50">
+                              Fechamento
+                              encerrado
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {fechamento.total !==
+                            undefined && (
+                            <b>
+                              {dinheiro(
+                                Number(
+                                  fechamento.total
+                                )
                               )}
                             </b>
+                          )}
 
-                            <span className="material-symbols-rounded block text-right mt-1 opacity-50">
-                              {aberto
-                                ? "expand_less"
-                                : "expand_more"}
-                            </span>
-
-                          </div>
-
+                          <span className="material-symbols-rounded">
+                            {aberto
+                              ? "expand_less"
+                              : "expand_more"}
+                          </span>
                         </div>
                       </button>
 
-                      {/* CONTEÚDO */}
-
                       {aberto && (
                         <div className="border-t border-zinc-800 p-4">
-
-                          {loadingFechamento &&
-                            !fechamentoDetalhe && (
-                              <div className="py-8 text-center text-sm opacity-50">
-                                Carregando
-                                fechamento...
-                              </div>
-                            )}
-
-                          {fechamentoDetalhe &&
-                            fechamentoDetalhe.id ===
-                              f.id && (
-                              <FechamentoVisual
-                                fechamento={
-                                  fechamentoDetalhe
-                                }
-                                moeda={
-                                  moeda
-                                }
-                              />
-                            )}
-
+                          {renderResumoFechamentoSalvo(
+                            fechamento,
+                            card
+                          )}
                         </div>
                       )}
-
                     </div>
                   );
                 }
@@ -2136,7 +2079,7 @@ export default function App() {
                 0 && (
                 <div
                   className={
-                    "p-8 rounded-2xl border text-center " +
+                    "p-6 rounded-2xl border text-center " +
                     card
                   }
                 >
@@ -2144,7 +2087,7 @@ export default function App() {
                     receipt_long
                   </span>
 
-                  <p className="font-bold mt-3">
+                  <p className="mt-2 font-semibold">
                     Nenhum fechamento
                   </p>
 
@@ -2155,258 +2098,186 @@ export default function App() {
                   </p>
                 </div>
               )}
-
             </div>
           </div>
         )}
 
-        {/* =====================================================
+        {/* ======================================================
             LOG
-        ===================================================== */}
+        ====================================================== */}
 
         {tab === "log" && (
           <div className="max-w-[800px] mx-auto">
-
             <h1 className="text-3xl font-bold">
-              Log de Vendas
+              Log
             </h1>
 
-            <p className="text-xs opacity-50 mt-1">
-              Todas as vendas registradas
-              no sistema.
+            <p className="text-xs opacity-60">
+              Todas as vendas feitas
             </p>
-
-            {/* PESQUISA */}
 
             <div
               className={
-                "mt-5 p-3 rounded-2xl border flex items-center gap-3 " +
+                "mt-4 p-3 rounded-2xl border " +
                 card
               }
             >
-              <span className="material-symbols-rounded opacity-50">
-                search
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-rounded opacity-50">
+                  search
+                </span>
 
-              <input
-                value={
-                  pesquisaLog
-                }
-                onChange={(e) =>
-                  setPesquisaLog(
-                    e.target
-                      .value
-                  )
-                }
-                placeholder="Pesquisar data, hora, descrição, produto..."
-                className="flex-1 bg-transparent outline-none text-sm"
-              />
-
-              {pesquisaLog && (
-                <button
-                  onClick={() =>
-                    setPesquisaLog(
-                      ""
+                <input
+                  value={logBusca}
+                  onChange={(e) =>
+                    setLogBusca(
+                      e.target.value
                     )
                   }
-                  className="opacity-50"
-                >
-                  <span className="material-symbols-rounded">
-                    close
-                  </span>
-                </button>
-              )}
+                  placeholder="Pesquisar data, hora, descrição, pagamento ou produto..."
+                  className="flex-1 bg-transparent outline-none text-sm min-w-0"
+                />
+              </div>
             </div>
 
-            <p className="text-[11px] opacity-40 mt-3">
-              {vendasFiltradas.length}{" "}
-              venda(s)
-            </p>
-
-            <div className="mt-3 space-y-3">
-
-              {vendasFiltradas.map(
-                (v) => {
-
-                  let itens: CartItem[] =
-                    [];
-
-                  try {
-                    itens =
-                      JSON.parse(
-                        v.itens
-                      );
-                  } catch {
-                    itens = [];
-                  }
-
-                  const qtdTotal =
-                    itens.reduce(
-                      (s, i) =>
-                        s +
-                        Number(
-                          i.cartQtd
-                        ),
-                      0
+            <div className="mt-4 space-y-3">
+              {vendasLogFiltradas.map(
+                (venda) => {
+                  const itens =
+                    parseItens(
+                      venda.itens
                     );
 
                   return (
                     <div
                       key={
-                        v.id
+                        venda.id
                       }
                       className={
                         "p-4 rounded-2xl border " +
                         card
                       }
                     >
-
                       <div className="flex justify-between gap-3">
-
                         <div>
-                          <p className="font-bold">
+                          <b>
                             Venda #
-                            {v.id}
-                          </p>
-
-                          <p className="text-[11px] opacity-50 mt-1">
-                            {dataHora(
-                              v.created_at
-                            )}
-                          </p>
-                        </div>
-
-                        <div className="text-right">
-                          <b className="text-[#D6FF57]">
-                            {moeda(
-                              Number(
-                                v.total
-                              )
-                            )}
+                            {
+                              venda.id
+                            }
                           </b>
 
-                          <p className="text-[10px] uppercase opacity-50 mt-1">
-                            {
-                              v.pagamento
-                            }
+                          <p className="text-[11px] opacity-50 mt-1">
+                            {formatarData(
+                              venda.created_at
+                            )}
                           </p>
                         </div>
 
-                      </div>
-
-                      {/* PRODUTOS */}
-
-                      <div className="mt-4 pt-3 border-t border-zinc-800">
-
-                        <p className="text-[10px] uppercase opacity-40 mb-2">
-                          Produtos •{" "}
-                          {qtdTotal}{" "}
-                          itens
-                        </p>
-
-                        <div className="space-y-2">
-
-                          {itens.map(
-                            (
-                              item,
-                              index
-                            ) => (
-                              <div
-                                key={
-                                  index
-                                }
-                                className="flex justify-between text-xs"
-                              >
-                                <span>
-                                  <b className="text-[#D6FF57]">
-                                    {
-                                      item.cartQtd
-                                    }x
-                                  </b>{" "}
-                                  {
-                                    item.nome
-                                  }
-                                </span>
-
-                                <span className="opacity-60">
-                                  {moeda(
-                                    Number(
-                                      item.preco
-                                    ) *
-                                      Number(
-                                        item.cartQtd
-                                      )
-                                  )}
-                                </span>
-                              </div>
+                        <b>
+                          {dinheiro(
+                            Number(
+                              venda.total
                             )
                           )}
-
-                        </div>
+                        </b>
                       </div>
 
-                      {/* DESCRIÇÃO */}
-
-                      {v.descricao &&
-                        v.descricao.trim() && (
-                          <div className="mt-3 p-3 rounded-xl bg-zinc-800 text-white">
-
-                            <p className="text-[10px] uppercase opacity-40">
-                              Descrição
-                            </p>
-
-                            <p className="text-sm mt-1">
-                              📝{" "}
-                              {
-                                v.descricao
+                      <div className="mt-3 space-y-1">
+                        {itens.map(
+                          (
+                            item,
+                            itemIndex
+                          ) => (
+                            <div
+                              key={
+                                itemIndex
                               }
-                            </p>
+                              className="flex justify-between text-xs gap-3"
+                            >
+                              <span>
+                                {
+                                  item.cartQtd
+                                }
+                                x{" "}
+                                {
+                                  item.nome
+                                }
+                              </span>
 
-                          </div>
+                              <span className="opacity-60">
+                                {dinheiro(
+                                  (parseFloat(
+                                    item.preco
+                                  ) ||
+                                    0) *
+                                    item.cartQtd
+                                )}
+                              </span>
+                            </div>
+                          )
                         )}
+                      </div>
 
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="text-[10px] px-2 py-1 rounded-full bg-[#D6FF57] text-black uppercase">
+                          {
+                            venda.pagamento
+                          }
+                        </span>
+
+                        {venda.fechamento_id && (
+                          <span className="text-[10px] px-2 py-1 rounded-full bg-zinc-800">
+                            Fechamento #
+                            {
+                              venda.fechamento_id
+                            }
+                          </span>
+                        )}
+                      </div>
+
+                      {venda.descricao && (
+                        <div className="mt-2 p-2 rounded-xl bg-zinc-800 text-xs">
+                          📝{" "}
+                          {
+                            venda.descricao
+                          }
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() =>
+                          deletarVenda(
+                            venda.id
+                          )
+                        }
+                        className="mt-3 w-full py-2 rounded-xl bg-red-500/10 text-red-400 text-xs"
+                      >
+                        Apagar venda
+                      </button>
                     </div>
                   );
                 }
               )}
 
-              {vendasFiltradas.length ===
+              {vendasLogFiltradas.length ===
                 0 && (
-                <div
-                  className={
-                    "p-8 rounded-2xl border text-center " +
-                    card
-                  }
-                >
-                  <span className="material-symbols-rounded text-4xl opacity-30">
-                    search_off
-                  </span>
-
-                  <p className="font-bold mt-3">
-                    Nenhuma venda
-                    encontrada
-                  </p>
-
-                  <p className="text-xs opacity-50 mt-1">
-                    Tente outra data,
-                    hora, descrição ou
-                    produto.
-                  </p>
-                </div>
+                <p className="text-center text-xs opacity-50 py-8">
+                  Nenhuma venda
+                  encontrada.
+                </p>
               )}
-
             </div>
           </div>
         )}
 
-        {/* =====================================================
+        {/* ======================================================
             CONFIGURAÇÕES
-        ===================================================== */}
+        ====================================================== */}
 
         {tab ===
           "settings" && (
           <div className="max-w-[520px] mx-auto">
-
             <h1 className="text-3xl font-bold">
               Config
             </h1>
@@ -2417,9 +2288,7 @@ export default function App() {
                 card
               }
             >
-
               <div className="flex justify-between items-center">
-
                 <span className="flex items-center gap-2">
                   <span className="material-symbols-rounded">
                     dark_mode
@@ -2445,7 +2314,6 @@ export default function App() {
                     ? "Dark"
                     : "Light"}
                 </button>
-
               </div>
 
               <button
@@ -2454,98 +2322,92 @@ export default function App() {
                     "freezer_logged"
                   );
 
-                  setLogged(
-                    false
-                  );
+                  setLogged(false);
                 }}
                 className="w-full py-3 rounded-xl border border-red-500/30 text-red-500"
               >
                 Sair
               </button>
-
             </div>
           </div>
         )}
-
       </main>
 
-      {/* =======================================================
+      {/* ========================================================
           CARRINHO
-      ======================================================= */}
+      ======================================================== */}
 
       {cart.length > 0 && (
         <div
           className={
-            "fixed bottom-28 left-1/2 -translate-x-1/2 w-[96%] max-w-[460px] rounded-[24px] p-4 shadow-2xl z-40 border " +
+            "fixed bottom-[108px] left-1/2 -translate-x-1/2 w-[calc(100%-24px)] max-w-[460px] rounded-[24px] p-4 shadow-2xl z-40 border " +
             card
           }
         >
-
           <div className="flex justify-between items-center mb-3">
             <b className="flex items-center gap-2">
               <span className="material-symbols-rounded">
                 shopping_cart
               </span>
 
-              {totalQtd}{" "}
+              {
+                totalQtdCarrinho
+              }{" "}
               itens
             </b>
 
             <b>
-              {moeda(
+              {dinheiro(
                 totalCarrinho
               )}
             </b>
           </div>
 
           <div className="max-h-[140px] overflow-auto space-y-2 mb-3">
-
             {cart.map(
-              (i) => (
+              (item) => (
                 <div
                   key={
-                    i.id
+                    item.id
                   }
                   className="flex items-center gap-2 bg-zinc-800 rounded-xl p-2 text-white"
                 >
-
                   <img
                     src={
-                      i.imagem
+                      item.imagem
                     }
-                    className="w-8 h-8 bg-white rounded object-contain"
+                    className="w-8 h-8 bg-white rounded object-contain shrink-0"
                   />
 
                   <span className="flex-1 text-xs truncate">
                     {
-                      i.nome
+                      item.nome
                     }
                   </span>
 
                   <div className="flex items-center gap-1">
-
                     <button
                       onClick={() =>
                         setCart(
                           (
-                            c
+                            current
                           ) =>
-                            c.map(
+                            current.map(
                               (
-                                x
+                                currentItem
                               ) =>
-                                x.id ===
-                                i.id
+                                currentItem.id ===
+                                item.id
                                   ? {
-                                      ...x,
+                                      ...currentItem,
                                       cartQtd:
                                         Math.max(
                                           1,
-                                          x.cartQtd -
+                                          currentItem.cartQtd -
                                             1
                                         ),
                                     }
-                                  : x
+                                  : currentItem
                             )
                         )
                       }
@@ -2556,7 +2418,7 @@ export default function App() {
 
                     <span className="w-5 text-center text-sm">
                       {
-                        i.cartQtd
+                        item.cartQtd
                       }
                     </span>
 
@@ -2565,43 +2427,40 @@ export default function App() {
                         const estoque =
                           produtos.find(
                             (
-                              p
+                              produto
                             ) =>
-                              p.id ===
-                              i.id
-                          )
-                            ?.qtd ||
+                              produto.id ===
+                              item.id
+                          )?.qtd ||
                           0;
 
                         if (
-                          i.cartQtd >=
+                          item.cartQtd >=
                           estoque
                         ) {
-                          showToast(
+                          return showToast(
                             "Estoque: " +
                               estoque
                           );
-
-                          return;
                         }
 
                         setCart(
                           (
-                            c
+                            current
                           ) =>
-                            c.map(
+                            current.map(
                               (
-                                x
+                                currentItem
                               ) =>
-                                x.id ===
-                                i.id
+                                currentItem.id ===
+                                item.id
                                   ? {
-                                      ...x,
+                                      ...currentItem,
                                       cartQtd:
-                                        x.cartQtd +
+                                        currentItem.cartQtd +
                                         1,
                                     }
-                                  : x
+                                  : currentItem
                             )
                         );
                       }}
@@ -2609,35 +2468,32 @@ export default function App() {
                     >
                       +
                     </button>
-
                   </div>
 
                   <button
                     onClick={() =>
                       setCart(
                         (
-                          c
+                          current
                         ) =>
-                          c.filter(
+                          current.filter(
                             (
-                              x
+                              currentItem
                             ) =>
-                              x.id !==
-                              i.id
+                              currentItem.id !==
+                              item.id
                           )
                       )
                     }
-                    className="w-7 h-7 rounded-full bg-red-500/20 text-red-400"
+                    className="w-7 h-7 rounded-full bg-red-500/20 text-red-400 shrink-0"
                   >
                     <span className="material-symbols-rounded text-[16px]">
                       close
                     </span>
                   </button>
-
                 </div>
               )
             )}
-
           </div>
 
           <button
@@ -2650,26 +2506,22 @@ export default function App() {
           >
             Finalizar Venda
           </button>
-
         </div>
       )}
 
-      {/* =======================================================
-          CHECKOUT
-      ======================================================= */}
+      {/* ========================================================
+          MODAL CHECKOUT
+      ======================================================== */}
 
       {showCheckout && (
         <div className="fixed inset-0 bg-black/70 z-[100] flex items-end md:items-center justify-center p-4">
-
           <div
             className={
-              "w-full max-w-[460px] rounded-[24px] p-6 space-y-4 border " +
+              "w-full max-w-[460px] rounded-[24px] p-6 space-y-4 border max-h-[90vh] overflow-auto " +
               card
             }
           >
-
             <div className="flex justify-between">
-
               <h2 className="font-bold text-xl">
                 Finalizar
               </h2>
@@ -2685,19 +2537,19 @@ export default function App() {
                   close
                 </span>
               </button>
-
             </div>
 
             <p className="text-sm opacity-60">
-              {totalQtd}{" "}
+              {
+                totalQtdCarrinho
+              }{" "}
               itens •{" "}
-              {moeda(
+              {dinheiro(
                 totalCarrinho
               )}
             </p>
 
             <div className="grid grid-cols-4 gap-2">
-
               {[
                 {
                   id: "pix",
@@ -2716,39 +2568,38 @@ export default function App() {
                   icon: "receipt_long",
                 },
               ].map(
-                (m) => (
+                (metodo) => (
                   <button
                     key={
-                      m.id
+                      metodo.id
                     }
                     onClick={() =>
                       setPagamento(
-                        m.id
+                        metodo.id
                       )
                     }
                     className={
                       "p-3 rounded-xl border flex flex-col items-center gap-1 " +
                       (pagamento ===
-                      m.id
+                      metodo.id
                         ? "bg-[#D6FF57] text-black border-[#D6FF57]"
                         : "border-zinc-700")
                     }
                   >
                     <span className="material-symbols-rounded">
                       {
-                        m.icon
+                        metodo.icon
                       }
                     </span>
 
                     <span className="text-[10px] uppercase">
                       {
-                        m.id
+                        metodo.id
                       }
                     </span>
                   </button>
                 )
               )}
-
             </div>
 
             <textarea
@@ -2758,8 +2609,7 @@ export default function App() {
               }
               onChange={(e) =>
                 setDescricao(
-                  e.target
-                    .value
+                  e.target.value
                 )
               }
               className="w-full p-3 rounded-xl bg-transparent border border-zinc-700 h-20"
@@ -2772,459 +2622,436 @@ export default function App() {
               className="w-full py-4 rounded-xl bg-[#D6FF57] text-black font-bold"
             >
               Confirmar{" "}
-              {moeda(
+              {dinheiro(
                 totalCarrinho
               )}
             </button>
-
           </div>
         </div>
       )}
 
-      {/* =======================================================
-          NAVEGAÇÃO
-      ======================================================= */}
+      {/* ========================================================
+          CONFIRMAÇÃO DO FECHAMENTO
+      ======================================================== */}
 
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[96%] max-w-[760px] z-50">
-
-        <div className="relative rounded-[28px] p-2 flex justify-between items-center bg-[#151517] border border-zinc-800 shadow-2xl overflow-x-auto">
-
+      {showConfirmFechamento && (
+        <div className="fixed inset-0 bg-black/75 z-[150] flex items-center justify-center p-4">
           <div
-            className="absolute top-1/2 -translate-y-1/2 transition-all duration-500 pointer-events-none"
-            style={{
-              left:
-                activeIndex *
-                  (100 /
-                    TABS.length) +
-                1 +
-                "%",
-              width:
-                100 /
-                  TABS.length -
-                2 +
-                "%",
-            }}
+            className={
+              "w-full max-w-[430px] rounded-[24px] p-6 border " +
+              card
+            }
           >
-            <div className="w-[52px] h-[52px] mx-auto rounded-full flex items-center justify-center bg-[#D6FF57]">
-              <span className="material-symbols-rounded text-black">
-                {
-                  TABS[
-                    activeIndex
-                  ].icon
-                }
+            <div className="w-14 h-14 rounded-full bg-[#D6FF57] text-black flex items-center justify-center mx-auto">
+              <span className="material-symbols-rounded text-3xl">
+                task_alt
               </span>
             </div>
-          </div>
 
-          {TABS.map(
-            (t) => (
-              <button
-                key={
-                  t.id
-                }
-                onClick={() =>
-                  setTab(
-                    t.id
-                  )
-                }
-                className={
-                  "relative z-10 min-w-[70px] h-[56px] flex flex-col items-center justify-center gap-0.5 " +
-                  (tab ===
-                  t.id
-                    ? "opacity-0"
-                    : "opacity-50 text-white")
-                }
-              >
-                <span className="material-symbols-rounded text-[23px]">
-                  {
-                    t.icon
-                  }
+            <h2 className="text-xl font-bold text-center mt-4">
+              Fazer fechamento?
+            </h2>
+
+            <p className="text-sm opacity-60 text-center mt-2">
+              O ciclo atual será encerrado.
+            </p>
+
+            <div className="mt-4 p-4 rounded-2xl bg-zinc-800 text-white">
+              <div className="flex justify-between text-sm">
+                <span>
+                  Vendas
                 </span>
 
-                <span className="text-[8px] uppercase">
+                <b>
                   {
-                    t.label
+                    vendas.length
                   }
-                </span>
-              </button>
-            )
-          )}
-
-        </div>
-      </div>
-
-    </div>
-  );
-}
-
-/*
-|--------------------------------------------------------------------------
-| COMPONENTE — VISUALIZAÇÃO DO FECHAMENTO
-|--------------------------------------------------------------------------
-*/
-
-function FechamentoVisual({
-  fechamento,
-  moeda,
-}: {
-  fechamento: FechamentoDetalhe;
-  moeda: (valor: number) => string;
-}) {
-  const resumo =
-    fechamento.resumo;
-
-  return (
-    <div className="space-y-4">
-
-      {/* ==========================================================
-          CABEÇALHO
-      ========================================================== */}
-
-      <div className="p-4 rounded-2xl bg-zinc-800 text-white">
-
-        <p className="text-[10px] uppercase opacity-40">
-          Fechamento Geral
-        </p>
-
-        <p className="text-3xl font-bold mt-1 text-[#D6FF57]">
-          {moeda(
-            resumo
-              .fechamentoGeral
-              .total
-          )}
-        </p>
-
-        <p className="text-xs opacity-50 mt-1">
-          {
-            resumo
-              .fechamentoGeral
-              .quantidadeVendas
-          }{" "}
-          vendas •{" "}
-          {
-            resumo
-              .fechamentoGeral
-              .quantidadeItens
-          }{" "}
-          itens
-        </p>
-
-      </div>
-
-      {/* ==========================================================
-          FORMAS DE PAGAMENTO
-      ========================================================== */}
-
-      <div
-        className="p-4 rounded-2xl bg-zinc-800 text-white"
-      >
-
-        <p className="font-bold">
-          💳 Formas de pagamento
-        </p>
-
-        <div className="mt-3 space-y-3">
-
-          {Object.entries(
-            resumo.porPagamento
-          ).map(
-            ([
-              pagamento,
-              dados,
-            ]) => (
-              <div
-                key={
-                  pagamento
-                }
-                className="rounded-xl border border-zinc-700 overflow-hidden"
-              >
-
-                <div className="p-3 flex justify-between">
-                  <b className="uppercase text-xs">
-                    {
-                      pagamento
-                    }
-                  </b>
-
-                  <b className="text-[#D6FF57]">
-                    {moeda(
-                      dados.total
-                    )}
-                  </b>
-                </div>
-
-                <div className="border-t border-zinc-700 p-3 space-y-2">
-
-                  {Object.entries(
-                    dados.produtos
-                  ).map(
-                    ([
-                      nome,
-                      produto,
-                    ]) => (
-                      <div
-                        key={
-                          nome
-                        }
-                        className="flex justify-between text-xs"
-                      >
-                        <span>
-                          <b className="text-[#D6FF57]">
-                            {
-                              produto.qtd
-                            }x
-                          </b>{" "}
-                          {
-                            nome
-                          }
-                        </span>
-
-                        <span className="opacity-60">
-                          {moeda(
-                            produto.total
-                          )}
-                        </span>
-                      </div>
-                    )
-                  )}
-
-                </div>
-
-              </div>
-            )
-          )}
-
-        </div>
-      </div>
-
-      {/* ==========================================================
-          POR DESCRIÇÃO
-      ========================================================== */}
-
-      <div
-        className="p-4 rounded-2xl bg-zinc-800 text-white"
-      >
-
-        <p className="font-bold">
-          👤 Fechamentos por
-          descrição
-        </p>
-
-        <div className="mt-3 space-y-3">
-
-          {resumo.porDescricao.map(
-            (
-              grupo,
-              index
-            ) => (
-              <div
-                key={
-                  grupo.nome +
-                  index
-                }
-                className="rounded-xl border border-zinc-700 overflow-hidden"
-              >
-
-                <div className="p-3 flex justify-between items-center">
-                  <div>
-                    <p className="font-bold text-sm">
-                      {
-                        grupo.nome
-                      }
-                    </p>
-
-                    <p className="text-[10px] opacity-40">
-                      Produtos
-                    </p>
-                  </div>
-
-                  <b className="text-[#D6FF57]">
-                    {moeda(
-                      grupo.total
-                    )}
-                  </b>
-                </div>
-
-                <div className="border-t border-zinc-700 p-3 space-y-2">
-
-                  {Object.entries(
-                    grupo.produtos
-                  ).map(
-                    ([
-                      nome,
-                      produto,
-                    ]) => (
-                      <div
-                        key={
-                          nome
-                        }
-                        className="flex justify-between text-xs"
-                      >
-                        <span>
-                          <b className="text-[#D6FF57]">
-                            {
-                              produto.qtd
-                            }x
-                          </b>{" "}
-                          {
-                            nome
-                          }
-                        </span>
-
-                        <span className="opacity-60">
-                          {moeda(
-                            produto.total
-                          )}
-                        </span>
-                      </div>
-                    )
-                  )}
-
-                </div>
-
-              </div>
-            )
-          )}
-
-          {/* SEM DESCRIÇÃO */}
-
-          {Object.keys(
-            resumo.semDescricao
-              .produtos
-          ).length > 0 && (
-            <div className="rounded-xl border border-zinc-700 overflow-hidden">
-
-              <div className="p-3 flex justify-between items-center">
-                <div>
-                  <p className="font-bold text-sm">
-                    Sem descrição
-                  </p>
-
-                  <p className="text-[10px] opacity-40">
-                    Sempre aparece por
-                    último
-                  </p>
-                </div>
-
-                <b className="text-[#D6FF57]">
-                  {moeda(
-                    resumo
-                      .semDescricao
-                      .total
-                  )}
                 </b>
               </div>
 
-              <div className="border-t border-zinc-700 p-3 space-y-2">
-
-                {Object.entries(
-                  resumo
-                    .semDescricao
-                    .produtos
-                ).map(
-                  ([
-                    nome,
-                    produto,
-                  ]) => (
-                    <div
-                      key={
-                        nome
-                      }
-                      className="flex justify-between text-xs"
-                    >
-                      <span>
-                        <b className="text-[#D6FF57]">
-                          {
-                            produto.qtd
-                          }x
-                        </b>{" "}
-                        {
-                          nome
-                        }
-                      </span>
-
-                      <span className="opacity-60">
-                        {moeda(
-                          produto.total
-                        )}
-                      </span>
-                    </div>
-                  )
-                )}
-
-              </div>
-
-            </div>
-          )}
-
-        </div>
-      </div>
-
-      {/* ==========================================================
-          PRODUTOS GERAIS
-      ========================================================== */}
-
-      <div
-        className="p-4 rounded-2xl bg-zinc-800 text-white"
-      >
-
-        <p className="font-bold">
-          📦 Produtos do fechamento
-        </p>
-
-        <div className="mt-3 space-y-2">
-
-          {Object.entries(
-            resumo.produtos
-          ).map(
-            ([
-              nome,
-              produto,
-            ]) => (
-              <div
-                key={
-                  nome
-                }
-                className="flex justify-between text-xs"
-              >
+              <div className="flex justify-between mt-2">
                 <span>
-                  <b className="text-[#D6FF57]">
-                    {
-                      produto.qtd
-                    }x
-                  </b>{" "}
-                  {
-                    nome
-                  }
+                  Total
                 </span>
 
-                <span>
-                  {moeda(
-                    produto.total
+                <b className="text-[#D6FF57]">
+                  {dinheiro(
+                    resumoAtual.totalGeral
                   )}
-                </span>
+                </b>
               </div>
-            )
-          )}
+            </div>
 
+            <p className="text-xs opacity-50 text-center mt-4">
+              As vendas não serão apagadas.
+              Elas ficarão no Log e no
+              fechamento histórico.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <button
+                disabled={
+                  fazendoFechamento
+                }
+                onClick={() =>
+                  setShowConfirmFechamento(
+                    false
+                  )
+                }
+                className="py-3 rounded-xl border border-zinc-700"
+              >
+                Cancelar
+              </button>
+
+              <button
+                disabled={
+                  fazendoFechamento
+                }
+                onClick={
+                  fazerFechamento
+                }
+                className="py-3 rounded-xl bg-[#D6FF57] text-black font-bold"
+              >
+                {fazendoFechamento
+                  ? "Fechando..."
+                  : "Confirmar"}
+              </button>
+            </div>
+          </div>
         </div>
+      )}
 
-      </div>
+      {/* ========================================================
+          NAVEGAÇÃO MOBILE
+          
+          CORREÇÃO:
+          Não existe mais "left: activeIndex * 20%".
+          O indicador é colocado dentro do próprio
+          botão ativo.
+      ======================================================== */}
 
+      <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-20px)] max-w-[520px] z-50">
+        <div className="grid grid-cols-5 items-center rounded-[28px] p-2 bg-[#151517] border border-zinc-800 shadow-2xl overflow-hidden">
+          {NAV_TABS.map(
+            (nav) => {
+              const ativo =
+                tab === nav.id;
+
+              return (
+                <button
+                  key={
+                    nav.id
+                  }
+                  onClick={() =>
+                    setTab(
+                      nav.id
+                    )
+                  }
+                  className={
+                    "relative h-[56px] w-full flex items-center justify-center rounded-[22px] transition-all duration-200 " +
+                    (ativo
+                      ? "bg-[#D6FF57] text-black"
+                      : "text-white opacity-50")
+                  }
+                >
+                  <span className="material-symbols-rounded text-[26px]">
+                    {
+                      nav.icon
+                    }
+                  </span>
+                </button>
+              );
+            }
+          )}
+        </div>
+      </nav>
     </div>
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| ADICIONAR PRODUTO
-|--------------------------------------------------------------------------
-*/
+/* ============================================================
+   RESUMO SALVO
+============================================================ */
+
+function renderResumoFechamentoSalvo(
+  fechamento: Fechamento,
+  card: string
+) {
+  const dados =
+    fechamento.dados;
+
+  if (!dados) {
+    return (
+      <p className="text-xs opacity-50">
+        Este fechamento não possui
+        resumo detalhado salvo.
+      </p>
+    );
+  }
+
+  /*
+   * A API pode retornar:
+   *
+   * dados:
+   * {
+   *   porPagamento,
+   *   porDescricao,
+   *   semDescricao,
+   *   mapa,
+   *   totalGeral
+   * }
+   */
+
+  const porPagamento =
+    dados.porPagamento ||
+    {};
+
+  const porDescricao =
+    dados.porDescricao ||
+    [];
+
+  const semDescricao =
+    dados.semDescricao;
+
+  return (
+    <div className="space-y-4">
+      {dados.totalGeral !==
+        undefined && (
+        <div>
+          <p className="text-xs opacity-50">
+            Total
+          </p>
+
+          <p className="text-2xl font-bold">
+            {dinheiro(
+              Number(
+                dados.totalGeral
+              )
+            )}
+          </p>
+        </div>
+      )}
+
+      {Object.entries(
+        porPagamento
+      ).map(
+        ([
+          pagamento,
+          valor,
+        ]: any) => (
+          <div
+            key={pagamento}
+            className="rounded-2xl bg-zinc-800 text-white overflow-hidden"
+          >
+            <div className="p-3 flex justify-between border-b border-zinc-700">
+              <b className="uppercase text-sm">
+                {pagamento}
+              </b>
+
+              <b className="text-[#D6FF57]">
+                {dinheiro(
+                  Number(
+                    valor.total
+                  )
+                )}
+              </b>
+            </div>
+
+            <div className="p-3 space-y-2">
+              {Object.entries(
+                valor.produtos ||
+                  {}
+              ).map(
+                ([
+                  nome,
+                  produto,
+                ]: any) => (
+                  <div
+                    key={nome}
+                    className="flex justify-between text-xs"
+                  >
+                    <span>
+                      <b className="text-[#D6FF57]">
+                        {
+                          produto.qtd
+                        }
+                        x
+                      </b>{" "}
+                      {nome}
+                    </span>
+
+                    <span className="opacity-70">
+                      {dinheiro(
+                        Number(
+                          produto.total
+                        )
+                      )}
+                    </span>
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        )
+      )}
+
+      {porDescricao.length >
+        0 && (
+        <div>
+          <p className="font-bold mb-2">
+            Fechamentos por descrição
+          </p>
+
+          <div className="space-y-2">
+            {porDescricao.map(
+              (item: any) => {
+                const dadosDescricao =
+                  Array.isArray(
+                    item
+                  )
+                    ? item[1]
+                    : item;
+
+                return (
+                  <div
+                    key={
+                      dadosDescricao.nome
+                    }
+                    className="rounded-xl bg-zinc-800 p-3"
+                  >
+                    <div className="flex justify-between">
+                      <b>
+                        {
+                          dadosDescricao.nome
+                        }
+                      </b>
+
+                      <b className="text-[#D6FF57]">
+                        {dinheiro(
+                          Number(
+                            dadosDescricao.total
+                          )
+                        )}
+                      </b>
+                    </div>
+
+                    <div className="mt-2 space-y-1">
+                      {Object.entries(
+                        dadosDescricao.produtos ||
+                          {}
+                      ).map(
+                        ([
+                          nome,
+                          produto,
+                        ]: any) => (
+                          <div
+                            key={
+                              nome
+                            }
+                            className="flex justify-between text-xs"
+                          >
+                            <span>
+                              {
+                                produto.qtd
+                              }
+                              x{" "}
+                              {
+                                nome
+                              }
+                            </span>
+
+                            <span>
+                              {dinheiro(
+                                Number(
+                                  produto.total
+                                )
+                              )}
+                            </span>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+            )}
+          </div>
+        </div>
+      )}
+
+      {semDescricao &&
+        Object.keys(
+          semDescricao.produtos ||
+            {}
+        ).length > 0 && (
+          <div className="rounded-xl bg-zinc-800 p-3">
+            <div className="flex justify-between">
+              <b>
+                Sem descrição
+              </b>
+
+              <b className="text-[#D6FF57]">
+                {dinheiro(
+                  Number(
+                    semDescricao.total
+                  )
+                )}
+              </b>
+            </div>
+
+            <div className="mt-2 space-y-1">
+              {Object.entries(
+                semDescricao.produtos ||
+                  {}
+              ).map(
+                ([
+                  nome,
+                  produto,
+                ]: any) => (
+                  <div
+                    key={nome}
+                    className="flex justify-between text-xs"
+                  >
+                    <span>
+                      {
+                        produto.qtd
+                      }
+                      x{" "}
+                      {
+                        nome
+                      }
+                    </span>
+
+                    <span>
+                      {dinheiro(
+                        Number(
+                          produto.total
+                        )
+                      )}
+                    </span>
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        )}
+    </div>
+  );
+}
+
+/* ============================================================
+   ADICIONAR PRODUTO
+============================================================ */
 
 function AddProduto({
   fetchProdutos,
   showToast,
-}: any) {
+}: {
+  fetchProdutos: () => Promise<void>;
+  showToast: (
+    message: string
+  ) => void;
+}) {
   const [form, setForm] =
     useState({
       nome: "",
@@ -3255,17 +3082,15 @@ function AddProduto({
     setLoading(true);
 
     try {
-      const r =
+      const response =
         await fetch(
           "/api/produtos",
           {
             method: "POST",
-
             headers: {
               "Content-Type":
                 "application/json",
             },
-
             body: JSON.stringify({
               nome: form.nome,
               preco: form.preco,
@@ -3279,22 +3104,15 @@ function AddProduto({
           }
         );
 
-      if (!r.ok) {
-        const data =
-          await r
-            .json()
-            .catch(
-              () => ({})
-            );
+      const data =
+        await response.json();
 
+      if (!response.ok) {
         throw new Error(
           data.error ||
             "Erro banco"
         );
       }
-
-      const data =
-        await r.json();
 
       setForm({
         nome: "",
@@ -3303,66 +3121,63 @@ function AddProduto({
         imagem: "",
       });
 
-      fetchProdutos();
+      await fetchProdutos();
 
       showToast(
         data.qtd
           ? `Estoque somado! Agora ${data.qtd} un`
           : "Produto salvo!"
       );
-    } catch (e: any) {
+    } catch (error: any) {
       showToast(
-        e.message
+        error?.message ||
+          "Erro ao salvar"
       );
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   return (
     <div className="mt-6 p-6 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4">
-
       <div className="grid grid-cols-4 gap-2">
-
         {GALERIA.map(
-          (img) => (
+          (imagem) => (
             <button
               key={
-                img.nome
+                imagem.nome
               }
               onClick={() =>
                 setForm({
                   ...form,
                   imagem:
-                    img.url,
+                    imagem.url,
                   nome:
                     form.nome ||
-                    img.nome,
+                    imagem.nome,
                 })
               }
               className={
                 "h-20 rounded-xl bg-white p-1 border-2 " +
                 (form.imagem ===
-                img.url
+                imagem.url
                   ? "border-[#D6FF57]"
                   : "border-transparent")
               }
             >
               <img
                 src={
-                  img.url
+                  imagem.url
                 }
                 className="w-full h-full object-contain"
               />
             </button>
           )
         )}
-
       </div>
 
       {form.imagem && (
         <div className="flex gap-3 items-center p-2 bg-zinc-800 rounded-xl text-white">
-
           <img
             src={
               form.imagem
@@ -3371,11 +3186,8 @@ function AddProduto({
           />
 
           <span className="text-sm">
-            {
-              form.nome
-            }
+            {form.nome}
           </span>
-
         </div>
       )}
 
@@ -3388,15 +3200,13 @@ function AddProduto({
           setForm({
             ...form,
             nome:
-              e.target
-                .value,
+              e.target.value,
           })
         }
         className="w-full p-3 rounded-xl bg-transparent border border-zinc-700 text-white"
       />
 
       <div className="grid grid-cols-2 gap-3">
-
         <input
           placeholder="Preço"
           type="number"
@@ -3407,8 +3217,7 @@ function AddProduto({
             setForm({
               ...form,
               preco:
-                e.target
-                  .value,
+                e.target.value,
             })
           }
           className="p-3 rounded-xl bg-transparent border border-zinc-700 text-white"
@@ -3417,34 +3226,27 @@ function AddProduto({
         <input
           placeholder="Qtd"
           type="number"
-          value={
-            form.qtd
-          }
+          value={form.qtd}
           onChange={(e) =>
             setForm({
               ...form,
               qtd:
-                e.target
-                  .value,
+                e.target.value,
             })
           }
           className="p-3 rounded-xl bg-transparent border border-zinc-700 text-white"
         />
-
       </div>
 
       <button
         onClick={save}
-        disabled={
-          loading
-        }
-        className="w-full py-3 rounded-xl bg-[#D6FF57] text-black font-bold"
+        disabled={loading}
+        className="w-full py-3 rounded-xl bg-[#D6FF57] text-black font-bold disabled:opacity-50"
       >
         {loading
           ? "Salvando..."
           : "Salvar"}
       </button>
-
     </div>
   );
 }
