@@ -142,7 +142,7 @@ export async function GET(request: Request) {
   }
 }
 
-// POST - Criar / Confirmar um novo fechamento
+// POST - Criar / Confirmar um novo fechamento e encerrar o ciclo das vendas
 export async function POST(request: Request) {
   try {
     await initDB();
@@ -168,6 +168,7 @@ export async function POST(request: Request) {
     const resumo = body.resumo || {};
     const createdAt = body.created_at || new Date().toISOString();
 
+    // 1. Criar o registro do novo fechamento
     const result = await db.execute({
       sql: `INSERT INTO fechamentos (numero, total, quantidade_vendas, quantidade_itens, venda_ids, resumo, created_at) 
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -184,11 +185,18 @@ export async function POST(request: Request) {
 
     const newFechamentoId = result.lastInsertRowid ? Number(result.lastInsertRowid) : null;
 
+    // 2. Se foram passados IDs específicos, associa apenas eles ao fechamento
     if (vendaIds.length > 0 && newFechamentoId) {
       const placeholders = vendaIds.map(() => "?").join(",");
       await db.execute({
         sql: `UPDATE vendas_log SET fechamento_id = ? WHERE id IN (${placeholders})`,
         args: [newFechamentoId, ...vendaIds]
+      });
+    } else if (newFechamentoId) {
+      // Caso contrário, encerra todas as vendas do ciclo em aberto
+      await db.execute({
+        sql: `UPDATE vendas_log SET fechamento_id = ? WHERE fechamento_id IS NULL OR fechamento_id = 0`,
+        args: [newFechamentoId]
       });
     }
 
@@ -224,13 +232,11 @@ export async function DELETE(request: Request) {
       );
     }
 
-    // 1. Desvincula as vendas que estavam associadas a este fechamento
     await db.execute({
       sql: "UPDATE vendas_log SET fechamento_id = NULL WHERE fechamento_id = ?",
       args: [Number(id)]
     });
 
-    // 2. Apaga o registro do fechamento do banco
     const result = await db.execute({
       sql: "DELETE FROM fechamentos WHERE id = ?",
       args: [Number(id)]

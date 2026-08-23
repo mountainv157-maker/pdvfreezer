@@ -645,38 +645,50 @@ export default function App() {
           </section>
         )}
 
-        {tab === "dash" && (
-          <section className="max-w-[800px] mx-auto">
+                {tab === "dash" && (
+          <section className="max-w-[800px] mx-auto space-y-4">
+            {/* Cabeçalho */}
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
               <div>
                 <h1 className="text-3xl font-bold">Dashboard</h1>
                 <p className="text-xs opacity-60">Ciclo atual • vendas ainda não fechadas</p>
               </div>
               {vendas.length > 0 && (
-                <button onClick={() => setShowConfirmFechamento(true)} className="px-5 py-3 rounded-xl bg-[#D6FF57] text-black font-bold">
-                  <span className="material-symbols-rounded align-middle mr-1">task_alt</span>
+                <button
+                  onClick={() => setShowConfirmFechamento(true)}
+                  className="px-5 py-3 rounded-xl bg-[#D6FF57] text-black font-bold flex items-center justify-center gap-1 hover:opacity-90 transition-opacity"
+                >
+                  <span className="material-symbols-rounded">task_alt</span>
                   Fazer fechamento
                 </button>
               )}
             </div>
 
-            <div className={`mt-4 p-4 rounded-2xl border ${card}`}>
-              <p className="font-bold">💰 Fechamento Geral</p>
-              <p className="text-3xl font-bold mt-2">{dinheiro(resumoAtual.totalGeral)}</p>
-              <p className="text-xs opacity-50">{vendas.length} vendas no ciclo atual</p>
+            {/* Fechamento Geral */}
+            <div className={`p-5 rounded-2xl border ${card}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider opacity-60">💰 Fechamento Geral</p>
+                  <p className="text-3xl font-extrabold mt-1">{dinheiro(resumoAtual.totalGeral)}</p>
+                </div>
+                <span className="text-xs px-3 py-1 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700">
+                  {vendas.length} {vendas.length === 1 ? "venda" : "vendas"}
+                </span>
+              </div>
 
-              <div className="mt-4 space-y-3">
+              <div className="mt-5 space-y-3">
                 {Object.entries(resumoAtual.porPagamento).map(([pg, dados]) => (
                   <ResumoPagamento key={pg} nome={pg} dados={dados} />
                 ))}
                 {!Object.keys(resumoAtual.porPagamento).length && (
-                  <p className="text-xs opacity-50">Nenhuma venda no ciclo atual.</p>
+                  <p className="text-xs opacity-50 py-2">Nenhuma venda no ciclo atual.</p>
                 )}
               </div>
             </div>
 
-            <div className={`mt-4 p-4 rounded-2xl border ${card}`}>
-              <p className="font-bold">👤 Fechamentos por descrição</p>
+            {/* Fechamentos por Descrição */}
+            <div className={`p-5 rounded-2xl border ${card}`}>
+              <p className="text-xs font-semibold uppercase tracking-wider opacity-60">👤 Fechamentos por descrição</p>
               <div className="mt-4 space-y-3">
                 {resumoAtual.porDescricao.map(([chave, dados]) => (
                   <ResumoDescricao key={chave} dados={dados} />
@@ -686,20 +698,29 @@ export default function App() {
                 )}
                 {!resumoAtual.porDescricao.length &&
                   !Object.keys(resumoAtual.semDescricao.produtos).length && (
-                    <p className="text-xs opacity-50">Nenhuma descrição registrada.</p>
+                    <p className="text-xs opacity-50 py-2">Nenhuma descrição registrada.</p>
                   )}
               </div>
             </div>
 
-            <div className={`mt-4 p-4 rounded-2xl border ${card}`}>
-              <p className="font-bold">📦 Produtos vendidos</p>
-              <div className="mt-3 space-y-2 text-sm">
+            {/* Produtos Vendidos */}
+            <div className={`p-5 rounded-2xl border ${card}`}>
+              <p className="text-xs font-semibold uppercase tracking-wider opacity-60">📦 Produtos vendidos</p>
+              <div className="mt-4 divide-y divide-zinc-800/50 text-sm">
                 {Object.entries(resumoAtual.mapa).map(([nome, d]) => (
-                  <div key={nome} className="flex justify-between">
-                    <span>{d.qtd}x {nome}</span><b>{dinheiro(d.total)}</b>
+                  <div key={nome} className="flex justify-between py-2 first:pt-0 last:pb-0 items-center">
+                    <span className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-xs font-bold text-[#D6FF57]">
+                        {d.qtd}x
+                      </span>
+                      <span>{nome}</span>
+                    </span>
+                    <b className="font-semibold">{dinheiro(d.total)}</b>
                   </div>
                 ))}
-                {!Object.keys(resumoAtual.mapa).length && <p className="opacity-50">Nenhuma venda.</p>}
+                {!Object.keys(resumoAtual.mapa).length && (
+                  <p className="text-xs opacity-50 py-2">Nenhuma venda.</p>
+                )}
               </div>
             </div>
           </section>
