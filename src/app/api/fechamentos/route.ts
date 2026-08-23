@@ -3,133 +3,186 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { db, initDB } from "../../../lib/db";
 
+// GET - Buscar fechamento por ID ou listar todos
 export async function GET(request: Request) {
-  await initDB();
+  try {
+    await initDB();
 
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get("id");
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
 
-  if (id) {
-    const r = await db.execute({
-      sql: "SELECT * FROM fechamentos WHERE id = ? LIMIT 1",
-      args: [Number(id)]
-    });
+    if (id) {
+      const r = await db.execute({
+        sql: "SELECT * FROM fechamentos WHERE id = ? LIMIT 1",
+        args: [Number(id)]
+      });
 
-    if (!r.rows.length) {
-      return NextResponse.json(
-        { error: "Fechamento não encontrado" },
-        { status: 404 }
-      );
-    }
-
-    const row: any = r.rows[0];
-
-    let resumo: any = {};
-    let precisaRefazer = true;
-
-    try {
-      resumo = JSON.parse(row.resumo || "{}");
-
-      if (
-        resumo &&
-        resumo.fechamentoGeral &&
-        Number(resumo.fechamentoGeral.total) > 0
-      ) {
-        precisaRefazer = false;
+      if (!r.rows.length) {
+        return NextResponse.json(
+          { error: "Fechamento não encontrado" },
+          { status: 404 }
+        );
       }
-    } catch {}
 
-    if (precisaRefazer) {
-      let vendaIds: number[] = [];
+      const row: any = r.rows[0];
+
+      let resumo: any = {};
+      let precisaRefazer = true;
 
       try {
-        vendaIds = JSON.parse(row.venda_ids || "[]");
+        resumo = JSON.parse(row.resumo || "{}");
+
+        if (
+          resumo &&
+          resumo.fechamentoGeral &&
+          Number(resumo.fechamentoGeral.total) > 0
+        ) {
+          precisaRefazer = false;
+        }
       } catch {}
 
-      if (vendaIds.length > 0) {
-        const placeholders = vendaIds.map(() => "?").join(",");
+      if (precisaRefazer) {
+        let vendaIds: number[] = [];
 
-        const vendasLog = await db.execute({
-          sql: `SELECT * FROM vendas_log WHERE id IN (${placeholders})`,
-          args: vendaIds
-        });
+        try {
+          vendaIds = JSON.parse(row.venda_ids || "[]");
+        } catch {}
 
-        let totalGeral = 0;
+        if (vendaIds.length > 0) {
+          const placeholders = vendaIds.map(() => "?").join(",");
 
-        for (const v of vendasLog.rows as any[]) {
-          totalGeral += Number(v.total) || 0;
-        }
+          const vendasLog = await db.execute({
+            sql: `SELECT * FROM vendas_log WHERE id IN (${placeholders})`,
+            args: vendaIds
+          });
 
-        resumo = {
-          fechamentoGeral: {
-            total: totalGeral,
-            quantidadeVendas: vendaIds.length,
-            quantidadeItens: 0
-          },
-          porPagamento: {},
-          produtos: {},
-          porDescricao: [],
-          semDescricao: {
-            nome: "Sem descrição",
-            total: totalGeral,
-            produtos: {}
+          let totalGeral = 0;
+
+          for (const v of vendasLog.rows as any[]) {
+            totalGeral += Number(v.total) || 0;
           }
-        };
 
-        await db.execute({
-          sql: "UPDATE fechamentos SET resumo = ? WHERE id = ?",
-          args: [JSON.stringify(resumo), Number(id)]
-        });
+          resumo = {
+            fechamentoGeral: {
+              total: totalGeral,
+              quantidadeVendas: vendaIds.length,
+              quantidadeItens: 0
+            },
+            porPagamento: {},
+            produtos: {},
+            porDescricao: [],
+            semDescricao: {
+              nome: "Sem descrição",
+              total: totalGeral,
+              produtos: {}
+            }
+          };
+
+          await db.execute({
+            sql: "UPDATE fechamentos SET resumo = ? WHERE id = ?",
+            args: [JSON.stringify(resumo), Number(id)]
+          });
+        }
       }
+
+      let venda_ids: any[] = [];
+
+      try {
+        venda_ids = JSON.parse(row.venda_ids || "[]");
+      } catch {}
+
+      return NextResponse.json({
+        id: Number(row.id),
+        numero: Number(row.numero),
+        created_at: String(row.created_at),
+        total: Number(row.total),
+        quantidade_vendas: Number(row.quantidade_vendas),
+        quantidade_itens: Number(row.quantidade_itens),
+        venda_ids,
+        resumo
+      });
     }
 
-    let venda_ids: any[] = [];
-
-    try {
-      venda_ids = JSON.parse(row.venda_ids || "[]");
-    } catch {}
-
-    return NextResponse.json({
-      id: Number(row.id),
-      numero: Number(row.numero),
-      created_at: String(row.created_at),
-      total: Number(row.total),
-      quantidade_vendas: Number(row.quantidade_vendas),
-      quantidade_itens: Number(row.quantidade_itens),
-      venda_ids,
-      resumo
+    const result = await db.execute({
+      sql: "SELECT * FROM fechamentos ORDER BY id DESC",
+      args: []
     });
+
+    const fechamentos = (result.rows as any[]).map((row) => {
+      let resumo: any = {};
+
+      try {
+        resumo = JSON.parse(row.resumo || "{}");
+      } catch {}
+
+      let venda_ids: any[] = [];
+
+      try {
+        venda_ids = JSON.parse(row.venda_ids || "[]");
+      } catch {}
+
+      return {
+        id: Number(row.id),
+        numero: Number(row.numero),
+        created_at: String(row.created_at),
+        total: Number(row.total),
+        quantidade_vendas: Number(row.quantidade_vendas),
+        quantidade_itens: Number(row.quantidade_itens),
+        venda_ids,
+        resumo
+      };
+    });
+
+    return NextResponse.json(fechamentos);
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Erro ao buscar fechamentos" },
+      { status: 500 }
+    );
   }
+}
 
-  const result = await db.execute({
-    sql: "SELECT * FROM fechamentos ORDER BY id DESC",
-    args: []
-  });
+// POST - Criar / Confirmar um novo fechamento
+export async function POST(request: Request) {
+  try {
+    await initDB();
 
-  const fechamentos = (result.rows as any[]).map((row) => {
-    let resumo: any = {};
+    const body = await request.json();
 
-    try {
-      resumo = JSON.parse(row.resumo || "{}");
-    } catch {}
+    const total = Number(body.total) || 0;
+    const quantidadeVendas = Number(body.quantidade_vendas || body.quantidadeVendas) || 0;
+    const quantidadeItens = Number(body.quantidade_itens || body.quantidadeItens) || 0;
+    const vendaIds = Array.isArray(body.venda_ids)
+      ? body.venda_ids
+      : Array.isArray(body.vendaIds)
+      ? body.vendaIds
+      : [];
+    const resumo = body.resumo || {};
 
-    let venda_ids: any[] = [];
+    const result = await db.execute({
+      sql: `INSERT INTO fechamentos (total, quantidade_vendas, quantidade_itens, venda_ids, resumo) 
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [
+        total,
+        quantidadeVendas,
+        quantidadeItens,
+        JSON.stringify(vendaIds),
+        JSON.stringify(resumo)
+      ]
+    });
 
-    try {
-      venda_ids = JSON.parse(row.venda_ids || "[]");
-    } catch {}
-
-    return {
-      id: Number(row.id),
-      numero: Number(row.numero),
-      created_at: String(row.created_at),
-      total: Number(row.total),
-      quantidade_vendas: Number(row.quantidade_vendas),
-      quantidade_itens: Number(row.quantidade_itens),
-      venda_ids,
-      resumo
-    };
-  });
-
-  return NextResponse.json(fechamentos);
+    return NextResponse.json(
+      {
+        success: true,
+        message: "Fechamento realizado com sucesso",
+        id: result.lastInsertRowid ? Number(result.lastInsertRowid) : null
+      },
+      { status: 201 }
+    );
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Erro ao realizar fechamento" },
+      { status: 500 }
+    );
+  }
 }
