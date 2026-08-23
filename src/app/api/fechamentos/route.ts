@@ -149,7 +149,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
-    // 1. Busca o maior 'numero' registrado até agora para calcular o próximo
+    // 1. Busca o maior 'numero' registrado para incrementar
     const maxNumeroResult = await db.execute({
       sql: "SELECT MAX(numero) as max_numero FROM fechamentos",
       args: []
@@ -167,18 +167,22 @@ export async function POST(request: Request) {
       ? body.vendaIds
       : [];
     const resumo = body.resumo || {};
+    
+    // Define a data/hora atual no formato ISO
+    const createdAt = body.created_at || new Date().toISOString();
 
-    // 2. Insere o registro incluindo o campo 'numero'
+    // 2. Insere o registro incluindo 'numero' e 'created_at'
     const result = await db.execute({
-      sql: `INSERT INTO fechamentos (numero, total, quantidade_vendas, quantidade_itens, venda_ids, resumo) 
-            VALUES (?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO fechamentos (numero, total, quantidade_vendas, quantidade_itens, venda_ids, resumo, created_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
       args: [
         proximoNumero,
         total,
         quantidadeVendas,
         quantidadeItens,
         JSON.stringify(vendaIds),
-        JSON.stringify(resumo)
+        JSON.stringify(resumo),
+        createdAt
       ]
     });
 
