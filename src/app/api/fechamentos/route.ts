@@ -149,6 +149,15 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
+    // 1. Busca o maior 'numero' registrado até agora para calcular o próximo
+    const maxNumeroResult = await db.execute({
+      sql: "SELECT MAX(numero) as max_numero FROM fechamentos",
+      args: []
+    });
+
+    const lastNumero = (maxNumeroResult.rows[0] as any)?.max_numero;
+    const proximoNumero = Number(body.numero) || (lastNumero ? Number(lastNumero) + 1 : 1);
+
     const total = Number(body.total) || 0;
     const quantidadeVendas = Number(body.quantidade_vendas || body.quantidadeVendas) || 0;
     const quantidadeItens = Number(body.quantidade_itens || body.quantidadeItens) || 0;
@@ -159,10 +168,12 @@ export async function POST(request: Request) {
       : [];
     const resumo = body.resumo || {};
 
+    // 2. Insere o registro incluindo o campo 'numero'
     const result = await db.execute({
-      sql: `INSERT INTO fechamentos (total, quantidade_vendas, quantidade_itens, venda_ids, resumo) 
-            VALUES (?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO fechamentos (numero, total, quantidade_vendas, quantidade_itens, venda_ids, resumo) 
+            VALUES (?, ?, ?, ?, ?, ?)`,
       args: [
+        proximoNumero,
         total,
         quantidadeVendas,
         quantidadeItens,
@@ -175,7 +186,8 @@ export async function POST(request: Request) {
       {
         success: true,
         message: "Fechamento realizado com sucesso",
-        id: result.lastInsertRowid ? Number(result.lastInsertRowid) : null
+        id: result.lastInsertRowid ? Number(result.lastInsertRowid) : null,
+        numero: proximoNumero
       },
       { status: 201 }
     );
