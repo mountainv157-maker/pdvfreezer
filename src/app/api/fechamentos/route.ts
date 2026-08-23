@@ -149,7 +149,6 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
-    // 1. Busca o maior 'numero' registrado para incrementar
     const maxNumeroResult = await db.execute({
       sql: "SELECT MAX(numero) as max_numero FROM fechamentos",
       args: []
@@ -161,17 +160,14 @@ export async function POST(request: Request) {
     const total = Number(body.total) || 0;
     const quantidadeVendas = Number(body.quantidade_vendas || body.quantidadeVendas) || 0;
     const quantidadeItens = Number(body.quantidade_itens || body.quantidadeItens) || 0;
-    const vendaIds = Array.isArray(body.venda_ids)
+    const vendaIds: number[] = Array.isArray(body.venda_ids)
       ? body.venda_ids
       : Array.isArray(body.vendaIds)
       ? body.vendaIds
       : [];
     const resumo = body.resumo || {};
-    
-    // Define a data/hora atual no formato ISO
     const createdAt = body.created_at || new Date().toISOString();
 
-    // 2. Insere o registro incluindo 'numero' e 'created_at'
     const result = await db.execute({
       sql: `INSERT INTO fechamentos (numero, total, quantidade_vendas, quantidade_itens, venda_ids, resumo, created_at) 
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -186,11 +182,21 @@ export async function POST(request: Request) {
       ]
     });
 
+    const newFechamentoId = result.lastInsertRowid ? Number(result.lastInsertRowid) : null;
+
+    if (vendaIds.length > 0 && newFechamentoId) {
+      const placeholders = vendaIds.map(() => "?").join(",");
+      await db.execute({
+        sql: `UPDATE vendas_log SET fechamento_id = ? WHERE id IN (${placeholders})`,
+        args: [newFechamentoId, ...vendaIds]
+      });
+    }
+
     return NextResponse.json(
       {
         success: true,
         message: "Fechamento realizado com sucesso",
-        id: result.lastInsertRowid ? Number(result.lastInsertRowid) : null,
+        id: newFechamentoId,
         numero: proximoNumero
       },
       { status: 201 }
@@ -198,6 +204,46 @@ export async function POST(request: Request) {
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Erro ao realizar fechamento" },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE - Apagar um relatório de fechamento
+export async function DELETE(request: Request) {
+  try {
+    await initDB();
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json(
+        { error: "ID do fechamento não informado" },
+        { status: 400 }
+      );
+    }
+
+    // 1. Desvincula as vendas que estavam associadas a este fechamento
+    await db.execute({
+      sql: "UPDATE vendas_log SET fechamento_id = NULL WHERE fechamento_id = ?",
+      args: [Number(id)]
+    });
+
+    // 2. Apaga o registro do fechamento do banco
+    const result = await db.execute({
+      sql: "DELETE FROM fechamentos WHERE id = ?",
+      args: [Number(id)]
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Fechamento apagado com sucesso",
+      affectedRows: result.rowsAffected
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Erro ao apagar fechamento" },
       { status: 500 }
     );
   }
