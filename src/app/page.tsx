@@ -41,12 +41,23 @@ type PagamentoResumo = {
   produtos: Record<string, ProdutoResumo>;
 };
 
+type Fechamento = {
+  id: number;
+  data: string;
+  total: number;
+  totalItens: number;
+  vendas: number;
+  pagamentos: Record<string, PagamentoResumo>;
+  produtos: Record<string, ProdutoResumo>;
+  vendaIds: number[];
+};
+
 const TABS = [
   { id: "home" as Tab, icon: "home" },
   { id: "pdv" as Tab, icon: "inventory_2" },
   { id: "add" as Tab, icon: "add_box" },
   { id: "dash" as Tab, icon: "monitoring" },
-  { id: "fechamentos" as Tab, icon: "calendar_month" },
+  { id: "fechamentos" as Tab, icon: "receipt_long" },
   { id: "settings" as Tab, icon: "settings" },
 ];
 
@@ -71,52 +82,43 @@ export default function App() {
   });
 
   const [tab, setTab] = useState<Tab>("home");
-
   const [dark, setDark] = useState(true);
 
   const [produtos, setProdutos] = useState<Produto[]>([]);
-
   const [cart, setCart] = useState<CartItem[]>([]);
-
   const [vendas, setVendas] = useState<Venda[]>([]);
 
-  const [pagamento, setPagamento] = useState("pix");
+  const [fechamentos, setFechamentos] =
+    useState<Fechamento[]>([]);
 
-  const [descricao, setDescricao] = useState("");
+  const [pagamento, setPagamento] =
+    useState("pix");
 
-  const [showCheckout, setShowCheckout] = useState(false);
+  const [descricao, setDescricao] =
+    useState("");
 
-  const [toast, setToast] = useState<string | null>(null);
+  const [showCheckout, setShowCheckout] =
+    useState(false);
+
+  const [toast, setToast] =
+    useState<string | null>(null);
 
   const [savedPass, setSavedPass] =
     useState("pdvadmin123");
 
-  const [newPass, setNewPass] = useState("");
-
-  /*
-   * Mês atualmente aberto no relatório.
-   *
-   * Exemplo:
-   * "2026-08"
-   */
-  const [mesSelecionado, setMesSelecionado] =
-    useState<string | null>(null);
+  const [newPass, setNewPass] =
+    useState("");
 
   const afkRef = useRef<any>(null);
 
   const showToast = (m: string) => {
     setToast(m);
 
-    setTimeout(() => {
-      setToast(null);
-    }, 3000);
+    setTimeout(
+      () => setToast(null),
+      3000
+    );
   };
-
-  /*
-   * ==========================================================
-   * INICIALIZAÇÃO
-   * ==========================================================
-   */
 
   useEffect(() => {
     setLogged(
@@ -132,18 +134,31 @@ export default function App() {
     );
 
     if (
-      localStorage.getItem("theme") ===
-      "light"
+      localStorage.getItem(
+        "theme"
+      ) === "light"
     ) {
       setDark(false);
     }
-  }, []);
 
-  /*
-   * ==========================================================
-   * TEMA
-   * ==========================================================
-   */
+    /*
+     * CARREGA FECHAMENTOS
+     */
+    try {
+      const salvos =
+        localStorage.getItem(
+          "freezer_fechamentos"
+        );
+
+      if (salvos) {
+        setFechamentos(
+          JSON.parse(salvos)
+        );
+      }
+    } catch {
+      setFechamentos([]);
+    }
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle(
@@ -157,25 +172,20 @@ export default function App() {
     );
   }, [dark]);
 
-  /*
-   * ==========================================================
-   * AUTO LOGOUT
-   * ==========================================================
-   */
-
   useEffect(() => {
     if (!logged) return;
 
     const reset = () => {
       clearTimeout(afkRef.current);
 
-      afkRef.current = setTimeout(() => {
-        sessionStorage.removeItem(
-          "freezer_logged"
-        );
+      afkRef.current =
+        setTimeout(() => {
+          sessionStorage.removeItem(
+            "freezer_logged"
+          );
 
-        setLogged(false);
-      }, 5 * 60 * 1000);
+          setLogged(false);
+        }, 5 * 60 * 1000);
     };
 
     [
@@ -184,7 +194,10 @@ export default function App() {
       "touchstart",
       "click",
     ].forEach((e) =>
-      window.addEventListener(e, reset)
+      window.addEventListener(
+        e,
+        reset
+      )
     );
 
     reset();
@@ -196,18 +209,17 @@ export default function App() {
         "touchstart",
         "click",
       ].forEach((e) =>
-        window.removeEventListener(e, reset)
+        window.removeEventListener(
+          e,
+          reset
+        )
       );
 
-      clearTimeout(afkRef.current);
+      clearTimeout(
+        afkRef.current
+      );
     };
   }, [logged]);
-
-  /*
-   * ==========================================================
-   * PRODUTOS
-   * ==========================================================
-   */
 
   const fetchProdutos = () =>
     fetch("/api/produtos")
@@ -217,12 +229,6 @@ export default function App() {
           setProdutos(d);
         }
       });
-
-  /*
-   * ==========================================================
-   * VENDAS
-   * ==========================================================
-   */
 
   const fetchVendas = () =>
     fetch("/api/vendas")
@@ -239,12 +245,6 @@ export default function App() {
       fetchVendas();
     }
   }, [logged, tab]);
-
-  /*
-   * ==========================================================
-   * LOGIN
-   * ==========================================================
-   */
 
   function doLogin() {
     if (
@@ -263,19 +263,17 @@ export default function App() {
         pass: "",
       });
     } else {
-      showToast("Usuário ou senha incorretos");
+      showToast(
+        "Usuário ou senha incorretos"
+      );
     }
   }
 
-  /*
-   * ==========================================================
-   * CARRINHO
-   * ==========================================================
-   */
-
   function addToCart(p: Produto) {
     if (p.qtd <= 0) {
-      return showToast("Sem estoque");
+      return showToast(
+        "Sem estoque"
+      );
     }
 
     setCart((prev) => {
@@ -284,9 +282,12 @@ export default function App() {
       );
 
       if (ex) {
-        if (ex.cartQtd >= p.qtd) {
+        if (
+          ex.cartQtd >= p.qtd
+        ) {
           showToast(
-            "Estoque máximo: " + p.qtd
+            "Estoque máximo: " +
+              p.qtd
           );
 
           return prev;
@@ -296,7 +297,8 @@ export default function App() {
           c.id === p.id
             ? {
                 ...c,
-                cartQtd: c.cartQtd + 1,
+                cartQtd:
+                  c.cartQtd + 1,
               }
             : c
         );
@@ -311,12 +313,6 @@ export default function App() {
       ];
     });
   }
-
-  /*
-   * ==========================================================
-   * FINALIZAR VENDA
-   * ==========================================================
-   */
 
   async function finalizarVenda() {
     const total = cart.reduce(
@@ -345,7 +341,8 @@ export default function App() {
         }
       );
 
-      const data = await r.json();
+      const data =
+        await r.json();
 
       if (!r.ok) {
         throw new Error(
@@ -358,22 +355,20 @@ export default function App() {
       setDescricao("");
       setShowCheckout(false);
 
-      await fetchProdutos();
-      await fetchVendas();
+      fetchProdutos();
+      fetchVendas();
 
       setTab("dash");
 
-      showToast("Venda salva!");
+      showToast(
+        "Venda salva!"
+      );
     } catch (e: any) {
-      showToast(e.message);
+      showToast(
+        e.message
+      );
     }
   }
-
-  /*
-   * ==========================================================
-   * EXCLUIR PRODUTO
-   * ==========================================================
-   */
 
   async function deletarProduto(
     id: number
@@ -386,7 +381,8 @@ export default function App() {
       return;
 
     await fetch(
-      "/api/produtos?id=" + id,
+      "/api/produtos?id=" +
+        id,
       {
         method: "DELETE",
       }
@@ -397,9 +393,304 @@ export default function App() {
 
   /*
    * ==========================================================
-   * TOTAIS DO CARRINHO
+   * RESUMO DO CICLO ATUAL
+   * ==========================================================
+   *
+   * Somente vendas que ainda NÃO foram fechadas.
+   */
+
+  const vendasAbertas =
+    vendas.filter(
+      (v) =>
+        !fechamentos.some(
+          (f) =>
+            f.vendaIds.includes(
+              v.id
+            )
+        )
+    );
+
+  /*
+   * ==========================================================
+   * RESUMO DO FECHAMENTO
    * ==========================================================
    */
+
+  const resumoFechamento = (
+    lista: Venda[] = vendasAbertas
+  ) => {
+    const mapa: Record<
+      string,
+      ProdutoResumo
+    > = {};
+
+    const porPagamento: Record<
+      string,
+      PagamentoResumo
+    > = {};
+
+    lista.forEach((v) => {
+      let itens: CartItem[] = [];
+
+      try {
+        itens = JSON.parse(
+          v.itens
+        );
+      } catch {
+        itens = [];
+      }
+
+      const pagamentoAtual =
+        v.pagamento ||
+        "outro";
+
+      if (
+        !porPagamento[
+          pagamentoAtual
+        ]
+      ) {
+        porPagamento[
+          pagamentoAtual
+        ] = {
+          total: 0,
+          produtos: {},
+        };
+      }
+
+      porPagamento[
+        pagamentoAtual
+      ].total += Number(
+        v.total
+      );
+
+      itens.forEach((it) => {
+        const nome = it.nome;
+        const qtd = Number(
+          it.cartQtd
+        );
+
+        const preco =
+          parseFloat(
+            it.preco
+          ) || 0;
+
+        const valor =
+          preco * qtd;
+
+        if (!mapa[nome]) {
+          mapa[nome] = {
+            qtd: 0,
+            total: 0,
+          };
+        }
+
+        mapa[nome].qtd +=
+          qtd;
+
+        mapa[nome].total +=
+          valor;
+
+        if (
+          !porPagamento[
+            pagamentoAtual
+          ].produtos[nome]
+        ) {
+          porPagamento[
+            pagamentoAtual
+          ].produtos[nome] = {
+            qtd: 0,
+            total: 0,
+          };
+        }
+
+        porPagamento[
+          pagamentoAtual
+        ].produtos[nome]
+          .qtd += qtd;
+
+        porPagamento[
+          pagamentoAtual
+        ].produtos[nome]
+          .total += valor;
+      });
+    });
+
+    return {
+      mapa,
+      porPagamento,
+
+      totalGeral:
+        lista.reduce(
+          (s, v) =>
+            s +
+            Number(v.total),
+          0
+        ),
+
+      totalItens:
+        lista.reduce(
+          (s, v) => {
+            let itens: CartItem[] =
+              [];
+
+            try {
+              itens =
+                JSON.parse(
+                  v.itens
+                );
+            } catch {
+              itens = [];
+            }
+
+            return (
+              s +
+              itens.reduce(
+                (x, i) =>
+                  x +
+                  Number(
+                    i.cartQtd
+                  ),
+                0
+              )
+            );
+          },
+          0
+        ),
+    };
+  };
+
+  /*
+   * ==========================================================
+   * FAZER FECHAMENTO
+   * ==========================================================
+   *
+   * Pega somente as vendas abertas e transforma em
+   * um fechamento permanente.
+   */
+
+  function fazerFechamento() {
+    if (
+      vendasAbertas.length === 0
+    ) {
+      showToast(
+        "Não existem vendas para fechar."
+      );
+
+      return;
+    }
+
+    const confirmar =
+      confirm(
+        "Deseja fazer o fechamento deste ciclo?\n\n" +
+          "As vendas atuais serão enviadas para Fechamentos."
+      );
+
+    if (!confirmar) return;
+
+    const resumo =
+      resumoFechamento(
+        vendasAbertas
+      );
+
+    const ultimoId =
+      fechamentos.length > 0
+        ? Math.max(
+            ...fechamentos.map(
+              (f) => f.id
+            )
+          )
+        : 0;
+
+    const novoFechamento: Fechamento =
+      {
+        id: ultimoId + 1,
+
+        data:
+          new Date().toISOString(),
+
+        total:
+          resumo.totalGeral,
+
+        totalItens:
+          resumo.totalItens,
+
+        vendas:
+          vendasAbertas.length,
+
+        pagamentos:
+          resumo.porPagamento,
+
+        produtos:
+          resumo.mapa,
+
+        vendaIds:
+          vendasAbertas.map(
+            (v) => v.id
+          ),
+      };
+
+    const novaLista = [
+      ...fechamentos,
+      novoFechamento,
+    ];
+
+    setFechamentos(
+      novaLista
+    );
+
+    localStorage.setItem(
+      "freezer_fechamentos",
+      JSON.stringify(
+        novaLista
+      )
+    );
+
+    setTab(
+      "fechamentos"
+    );
+
+    showToast(
+      "Fechamento realizado!"
+    );
+  }
+
+  /*
+   * ==========================================================
+   * EXCLUIR FECHAMENTO
+   * ==========================================================
+   */
+
+  function excluirFechamento(
+    id: number
+  ) {
+    if (
+      !confirm(
+        "Excluir este fechamento?"
+      )
+    )
+      return;
+
+    const novaLista =
+      fechamentos.filter(
+        (f) =>
+          f.id !== id
+      );
+
+    setFechamentos(
+      novaLista
+    );
+
+    localStorage.setItem(
+      "freezer_fechamentos",
+      JSON.stringify(
+        novaLista
+      )
+    );
+
+    showToast(
+      "Fechamento excluído"
+    );
+  }
 
   const total = cart.reduce(
     (s, i) =>
@@ -424,283 +715,6 @@ export default function App() {
     produtos.filter(
       (p) => p.qtd > 0
     );
-
-  /*
-   * ==========================================================
-   * CONVERTER DATA
-   * ==========================================================
-   */
-
-  function getDataVenda(
-    venda: Venda
-  ) {
-    const data = new Date(
-      venda.created_at
-    );
-
-    return data;
-  }
-
-  /*
-   * ==========================================================
-   * CHAVE DO MÊS
-   *
-   * Retorna:
-   *
-   * 2026-08
-   * 2026-07
-   * etc.
-   * ==========================================================
-   */
-
-  function getMesKey(
-    venda: Venda
-  ) {
-    const data =
-      getDataVenda(venda);
-
-    const ano =
-      data.getFullYear();
-
-    const mes =
-      String(
-        data.getMonth() + 1
-      ).padStart(2, "0");
-
-    return `${ano}-${mes}`;
-  }
-
-  /*
-   * ==========================================================
-   * NOME DO MÊS
-   * ==========================================================
-   */
-
-  function getNomeMes(
-    chave: string
-  ) {
-    const [ano, mes] =
-      chave.split("-");
-
-    const data = new Date(
-      Number(ano),
-      Number(mes) - 1,
-      1
-    );
-
-    return data.toLocaleDateString(
-      "pt-BR",
-      {
-        month: "long",
-        year: "numeric",
-      }
-    );
-  }
-
-  /*
-   * ==========================================================
-   * VENDAS SEPARADAS POR MÊS
-   * ==========================================================
-   */
-
-  const vendasPorMes =
-    vendas.reduce(
-      (
-        grupos: Record<
-          string,
-          Venda[]
-        >,
-        venda
-      ) => {
-        const chave =
-          getMesKey(venda);
-
-        if (!grupos[chave]) {
-          grupos[chave] = [];
-        }
-
-        grupos[chave].push(venda);
-
-        return grupos;
-      },
-      {}
-    );
-
-  /*
-   * Ordena os meses do mais recente
-   * para o mais antigo.
-   */
-
-  const mesesDisponiveis =
-    Object.keys(
-      vendasPorMes
-    ).sort((a, b) =>
-      b.localeCompare(a)
-    );
-
-  /*
-   * ==========================================================
-   * RESUMO DO FECHAMENTO
-   * ==========================================================
-   */
-
-  function calcularResumo(
-    vendasDoPeriodo: Venda[]
-  ) {
-    const mapa: Record<
-      string,
-      ProdutoResumo
-    > = {};
-
-    const porPagamento: Record<
-      string,
-      PagamentoResumo
-    > = {};
-
-    vendasDoPeriodo.forEach(
-      (venda) => {
-        let itens: CartItem[] = [];
-
-        try {
-          itens = JSON.parse(
-            venda.itens
-          );
-        } catch {
-          itens = [];
-        }
-
-        const pagamentoAtual =
-          venda.pagamento ||
-          "outro";
-
-        if (
-          !porPagamento[
-            pagamentoAtual
-          ]
-        ) {
-          porPagamento[
-            pagamentoAtual
-          ] = {
-            total: 0,
-            produtos: {},
-          };
-        }
-
-        porPagamento[
-          pagamentoAtual
-        ].total += Number(
-          venda.total
-        );
-
-        itens.forEach((item) => {
-          const nome = item.nome;
-
-          const qtd =
-            Number(
-              item.cartQtd
-            );
-
-          const preco =
-            parseFloat(
-              item.preco
-            ) || 0;
-
-          const valor =
-            preco * qtd;
-
-          /*
-           * RESUMO GERAL
-           */
-
-          if (!mapa[nome]) {
-            mapa[nome] = {
-              qtd: 0,
-              total: 0,
-            };
-          }
-
-          mapa[nome].qtd += qtd;
-          mapa[nome].total += valor;
-
-          /*
-           * PRODUTOS POR PAGAMENTO
-           */
-
-          if (
-            !porPagamento[
-              pagamentoAtual
-            ].produtos[nome]
-          ) {
-            porPagamento[
-              pagamentoAtual
-            ].produtos[nome] = {
-              qtd: 0,
-              total: 0,
-            };
-          }
-
-          porPagamento[
-            pagamentoAtual
-          ].produtos[nome].qtd +=
-            qtd;
-
-          porPagamento[
-            pagamentoAtual
-          ].produtos[nome].total +=
-            valor;
-        });
-      }
-    );
-
-    return {
-      mapa,
-      porPagamento,
-      totalGeral:
-        vendasDoPeriodo.reduce(
-          (s, v) =>
-            s + Number(v.total),
-          0
-        ),
-      quantidadeVendas:
-        vendasDoPeriodo.length,
-    };
-  }
-
-  /*
-   * ==========================================================
-   * ÍCONE DO PAGAMENTO
-   * ==========================================================
-   */
-
-  function getPagamentoIcon(
-    pagamentoAtual: string
-  ) {
-    if (
-      pagamentoAtual ===
-      "pix"
-    )
-      return "qr_code";
-
-    if (
-      pagamentoAtual ===
-      "dinheiro"
-    )
-      return "payments";
-
-    if (
-      pagamentoAtual ===
-      "cartao"
-    )
-      return "credit_card";
-
-    return "receipt_long";
-  }
-
-  /*
-   * ==========================================================
-   * TELA DE LOGIN
-   * ==========================================================
-   */
 
   if (!logged) {
     return (
@@ -737,7 +751,9 @@ export default function App() {
 
           <input
             placeholder="Usuário"
-            value={loginForm.user}
+            value={
+              loginForm.user
+            }
             onChange={(e) =>
               setLoginForm({
                 ...loginForm,
@@ -755,7 +771,9 @@ export default function App() {
           <input
             placeholder="Senha"
             type="password"
-            value={loginForm.pass}
+            value={
+              loginForm.pass
+            }
             onChange={(e) =>
               setLoginForm({
                 ...loginForm,
@@ -763,7 +781,8 @@ export default function App() {
               })
             }
             onKeyDown={(e) =>
-              e.key === "Enter" &&
+              e.key ===
+                "Enter" &&
               doLogin()
             }
             className={
@@ -793,26 +812,6 @@ export default function App() {
     ? "bg-zinc-900 border-zinc-800"
     : "bg-white border-zinc-200";
 
-  /*
-   * ==========================================================
-   * RELATÓRIO DO MÊS SELECIONADO
-   * ==========================================================
-   */
-
-  const vendasMesSelecionado =
-    mesSelecionado
-      ? vendasPorMes[
-          mesSelecionado
-        ] || []
-      : [];
-
-  const resumoMes =
-    mesSelecionado
-      ? calcularResumo(
-          vendasMesSelecionado
-        )
-      : null;
-
   return (
     <div
       className={
@@ -826,7 +825,7 @@ export default function App() {
       />
 
       {toast && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-white px-5 py-3 rounded-full text-sm z-[200] border border-zinc-700">
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-white px-5 py-3 rounded-full text-sm z-[100] border border-zinc-700">
           {toast}
         </div>
       )}
@@ -835,21 +834,11 @@ export default function App() {
         <div className="font-bold">
           Freezer da Amanda
         </div>
-
-        <div className="text-xs opacity-50">
-          {tab ===
-            "fechamentos" &&
-            mesSelecionado
-            ? "Relatório mensal"
-            : ""}
-        </div>
       </header>
 
       <main className="w-full max-w-[1200px] flex-1 px-6 pb-48 pt-2">
 
-        {/* =====================================================
-            HOME
-        ===================================================== */}
+        {/* HOME */}
 
         {tab === "home" && (
           <div>
@@ -858,8 +847,7 @@ export default function App() {
             </h1>
 
             <p className="text-xs opacity-60">
-              {produtosAtivos.length}{" "}
-              produtos disponíveis
+              {produtosAtivos.length} produtos
             </p>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
@@ -914,9 +902,7 @@ export default function App() {
           </div>
         )}
 
-        {/* =====================================================
-            PDV
-        ===================================================== */}
+        {/* PDV */}
 
         {tab === "pdv" && (
           <div className="max-w-[700px] mx-auto">
@@ -925,8 +911,7 @@ export default function App() {
             </h1>
 
             <p className="text-xs opacity-60">
-              Adiciona e remove produtos
-              do banco
+              Adiciona e remove produtos do banco
             </p>
 
             <div
@@ -942,8 +927,7 @@ export default function App() {
                     key={p.id}
                     className={
                       "p-4 flex gap-3 items-center " +
-                      (p.qtd <=
-                      0
+                      (p.qtd <= 0
                         ? "opacity-40"
                         : "")
                     }
@@ -964,9 +948,7 @@ export default function App() {
                       <p className="text-xs opacity-60">
                         R${" "}
                         {p.preco}{" "}
-                        •{" "}
-                        {p.qtd}{" "}
-                        un
+                        • {p.qtd} un
                       </p>
                     </div>
 
@@ -1032,9 +1014,7 @@ export default function App() {
           </div>
         )}
 
-        {/* =====================================================
-            ADICIONAR
-        ===================================================== */}
+        {/* ADICIONAR */}
 
         {tab === "add" && (
           <div className="max-w-[520px] mx-auto">
@@ -1043,8 +1023,7 @@ export default function App() {
             </h1>
 
             <p className="text-xs opacity-60">
-              Se nome igual, soma no
-              estoque.
+              Se nome igual, soma no estoque.
             </p>
 
             <AddProduto
@@ -1059,102 +1038,350 @@ export default function App() {
         )}
 
         {/* =====================================================
-            DASHBOARD
+            DASH
         ===================================================== */}
 
         {tab === "dash" && (
           <div className="max-w-[700px] mx-auto">
-            <h1 className="text-3xl font-bold">
-              Dashboard
-            </h1>
 
-            <p className="text-xs opacity-60 mt-1">
-              Visão rápida das vendas
-            </p>
+            <div className="flex justify-between items-start gap-3">
 
-            <div className="grid grid-cols-2 gap-3 mt-5">
+              <div>
+                <h1 className="text-3xl font-bold">
+                  Ciclo
+                </h1>
 
-              <div
-                className={
-                  "p-5 rounded-2xl border " +
-                  card
-                }
-              >
-                <span className="material-symbols-rounded opacity-60">
-                  point_of_sale
-                </span>
-
-                <p className="text-xs opacity-60 mt-3">
-                  Total vendido
-                </p>
-
-                <p className="text-2xl font-bold mt-1">
-                  R${" "}
-                  {vendas
-                    .reduce(
-                      (s, v) =>
-                        s +
-                        Number(
-                          v.total
-                        ),
-                      0
-                    )
-                    .toFixed(2)}
+                <p className="text-xs opacity-60">
+                  Acerto / Fechamento
                 </p>
               </div>
 
-              <div
-                className={
-                  "p-5 rounded-2xl border " +
-                  card
-                }
-              >
-                <span className="material-symbols-rounded opacity-60">
-                  receipt_long
-                </span>
-
-                <p className="text-xs opacity-60 mt-3">
-                  Vendas
-                </p>
-
-                <p className="text-2xl font-bold mt-1">
-                  {vendas.length}
-                </p>
-              </div>
-
-            </div>
-
-            <div
-              className={
-                "mt-4 p-5 rounded-2xl border " +
-                card
-              }
-            >
-              <p className="font-bold">
-                📅 Fechamentos
-              </p>
-
-              <p className="text-xs opacity-60 mt-1">
-                Acesse a aba de
-                fechamentos para
-                consultar os relatórios
-                mensais.
-              </p>
+              {/* BOTÃO PRINCIPAL DO FECHAMENTO */}
 
               <button
-                onClick={() => {
-                  setMesSelecionado(
-                    null
-                  );
-                  setTab(
-                    "fechamentos"
-                  );
-                }}
-                className="mt-4 w-full py-3 rounded-xl bg-[#D6FF57] text-black font-bold"
+                onClick={
+                  fazerFechamento
+                }
+                disabled={
+                  vendasAbertas.length ===
+                  0
+                }
+                className={
+                  "px-4 py-3 rounded-xl font-bold flex items-center gap-2 " +
+                  (vendasAbertas.length >
+                  0
+                    ? "bg-[#D6FF57] text-black"
+                    : "bg-zinc-800 text-zinc-500")
+                }
               >
-                Abrir Fechamentos
+                <span className="material-symbols-rounded">
+                  lock
+                </span>
+
+                Fazer fechamento
               </button>
+
             </div>
+
+            {(() => {
+              const {
+                mapa,
+                porPagamento,
+                totalGeral,
+                totalItens,
+              } =
+                resumoFechamento();
+
+              return (
+                <div className="mt-4 space-y-4">
+
+                  {/* RESUMO DO CICLO */}
+
+                  <div
+                    className={
+                      "p-5 rounded-2xl border " +
+                      card
+                    }
+                  >
+                    <div className="flex justify-between items-center">
+
+                      <div>
+                        <p className="text-xs opacity-50 uppercase">
+                          Ciclo atual
+                        </p>
+
+                        <p className="text-3xl font-bold mt-1">
+                          R${" "}
+                          {totalGeral.toFixed(
+                            2
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-xs opacity-50">
+                          Itens
+                        </p>
+
+                        <p className="font-bold">
+                          {totalItens}
+                        </p>
+
+                        <p className="text-xs opacity-50 mt-1">
+                          Vendas
+                        </p>
+
+                        <p className="font-bold">
+                          {
+                            vendasAbertas.length
+                          }
+                        </p>
+                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* PAGAMENTOS */}
+
+                  <div
+                    className={
+                      "p-4 rounded-2xl border " +
+                      card
+                    }
+                  >
+                    <p className="font-bold">
+                      💰 Formas de pagamento
+                    </p>
+
+                    <div className="mt-3 space-y-2">
+
+                      {Object.entries(
+                        porPagamento
+                      ).map(
+                        ([
+                          pagamentoAtual,
+                          dados,
+                        ]) => (
+                          <div
+                            key={
+                              pagamentoAtual
+                            }
+                            className="flex justify-between items-center p-3 rounded-xl bg-zinc-800 text-white"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="material-symbols-rounded">
+                                {pagamentoAtual ===
+                                "pix"
+                                  ? "qr_code"
+                                  : pagamentoAtual ===
+                                    "dinheiro"
+                                  ? "payments"
+                                  : pagamentoAtual ===
+                                    "cartao"
+                                  ? "credit_card"
+                                  : "receipt_long"}
+                              </span>
+
+                              <span className="uppercase text-xs font-bold">
+                                {
+                                  pagamentoAtual
+                                }
+                              </span>
+                            </div>
+
+                            <b className="text-[#D6FF57]">
+                              R${" "}
+                              {Number(
+                                dados.total
+                              ).toFixed(
+                                2
+                              )}
+                            </b>
+                          </div>
+                        )
+                      )}
+
+                      {Object.keys(
+                        porPagamento
+                      ).length ===
+                        0 && (
+                        <p className="text-xs opacity-50">
+                          Nenhuma venda neste ciclo.
+                        </p>
+                      )}
+
+                    </div>
+                  </div>
+
+                  {/* PRODUTOS */}
+
+                  <div
+                    className={
+                      "p-4 rounded-2xl border " +
+                      card
+                    }
+                  >
+                    <p className="font-bold">
+                      📦 Produtos vendidos
+                    </p>
+
+                    <div className="mt-3 space-y-2">
+
+                      {Object.entries(
+                        mapa
+                      ).map(
+                        ([
+                          nome,
+                          d,
+                        ]) => (
+                          <div
+                            key={
+                              nome
+                            }
+                            className="flex justify-between text-sm"
+                          >
+                            <span>
+                              {d.qtd}x{" "}
+                              {nome}
+                            </span>
+
+                            <b>
+                              R${" "}
+                              {d.total.toFixed(
+                                2
+                              )}
+                            </b>
+                          </div>
+                        )
+                      )}
+
+                      {Object.keys(
+                        mapa
+                      ).length ===
+                        0 && (
+                        <p className="text-xs opacity-50">
+                          Nenhuma venda.
+                        </p>
+                      )}
+
+                    </div>
+                  </div>
+
+                  {/* VENDAS DO CICLO */}
+
+                  <div>
+
+                    <p className="font-bold mb-3">
+                      Vendas do ciclo
+                    </p>
+
+                    <div className="space-y-3">
+
+                      {vendasAbertas.map(
+                        (v) => {
+                          let itens: CartItem[] =
+                            [];
+
+                          try {
+                            itens =
+                              JSON.parse(
+                                v.itens
+                              );
+                          } catch {
+                            itens =
+                              [];
+                          }
+
+                          return (
+                            <div
+                              key={
+                                v.id
+                              }
+                              className={
+                                "p-4 rounded-2xl border " +
+                                card
+                              }
+                            >
+                              <div className="flex justify-between">
+
+                                <b>
+                                  #{v.id}{" "}
+                                  R${" "}
+                                  {Number(
+                                    v.total
+                                  ).toFixed(
+                                    2
+                                  )}
+                                </b>
+
+                                <span className="text-[10px] px-2 py-1 rounded-full bg-[#D6FF57] text-black uppercase">
+                                  {
+                                    v.pagamento
+                                  }
+                                </span>
+
+                              </div>
+
+                              <p className="text-xs opacity-50 mt-1">
+                                {new Date(
+                                  v.created_at
+                                ).toLocaleString(
+                                  "pt-BR"
+                                )}
+                              </p>
+
+                              <p className="text-xs mt-2">
+                                {itens
+                                  .map(
+                                    (
+                                      i
+                                    ) =>
+                                      `${i.cartQtd}x ${i.nome}`
+                                  )
+                                  .join(
+                                    " • "
+                                  )}
+                              </p>
+
+                              {v.descricao && (
+                                <div className="mt-2 text-sm p-2 bg-zinc-800 rounded-lg text-white">
+                                  📝{" "}
+                                  {
+                                    v.descricao
+                                  }
+                                </div>
+                              )}
+
+                            </div>
+                          );
+                        }
+                      )}
+
+                      {vendasAbertas.length ===
+                        0 && (
+                        <div className="p-8 rounded-2xl border border-dashed border-zinc-700 text-center">
+                          <span className="material-symbols-rounded text-4xl opacity-30">
+                            task_alt
+                          </span>
+
+                          <p className="font-bold mt-2">
+                            Ciclo fechado
+                          </p>
+
+                          <p className="text-xs opacity-50 mt-1">
+                            Faça novas vendas para iniciar outro ciclo.
+                          </p>
+                        </div>
+                      )}
+
+                    </div>
+
+                  </div>
+
+                </div>
+              );
+            })()}
+
           </div>
         )}
 
@@ -1166,659 +1393,227 @@ export default function App() {
           "fechamentos" && (
           <div className="max-w-[700px] mx-auto">
 
-            {/* =================================================
-                LISTA DE MESES
-            ================================================= */}
+            <h1 className="text-3xl font-bold">
+              Fechamentos
+            </h1>
 
-            {!mesSelecionado && (
-              <>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h1 className="text-3xl font-bold">
-                      Fechamentos
-                    </h1>
+            <p className="text-xs opacity-60">
+              Histórico dos ciclos encerrados
+            </p>
 
-                    <p className="text-xs opacity-60 mt-1">
-                      Relatórios mensais
-                    </p>
-                  </div>
+            <div className="mt-5 space-y-4">
 
-                  <span className="material-symbols-rounded text-3xl opacity-50">
-                    calendar_month
+              {fechamentos.length ===
+                0 && (
+                <div
+                  className={
+                    "p-8 rounded-2xl border text-center " +
+                    card
+                  }
+                >
+                  <span className="material-symbols-rounded text-5xl opacity-30">
+                    receipt_long
                   </span>
+
+                  <p className="font-bold mt-3">
+                    Nenhum fechamento
+                  </p>
+
+                  <p className="text-xs opacity-50 mt-1">
+                    Os fechamentos realizados aparecerão aqui.
+                  </p>
                 </div>
+              )}
 
-                {mesesDisponiveis.length ===
-                  0 ? (
-                  <div
-                    className={
-                      "mt-6 p-6 rounded-2xl border text-center " +
-                      card
-                    }
-                  >
-                    <span className="material-symbols-rounded text-5xl opacity-30">
-                      event_busy
-                    </span>
+              {[
+                ...fechamentos,
+              ]
+                .reverse()
+                .map(
+                  (f) => (
+                    <div
+                      key={f.id}
+                      className={
+                        "rounded-2xl border overflow-hidden " +
+                        card
+                      }
+                    >
 
-                    <p className="font-bold mt-3">
-                      Nenhum fechamento
-                    </p>
+                      {/* CABEÇALHO */}
 
-                    <p className="text-xs opacity-60 mt-1">
-                      Quando houver
-                      vendas, os meses
-                      aparecerão aqui.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-5 space-y-3">
+                      <div className="p-5">
 
-                    {mesesDisponiveis.map(
-                      (mes) => {
-                        const vendasDoMes =
-                          vendasPorMes[
-                            mes
-                          ] || [];
+                        <div className="flex justify-between items-start">
 
-                        const resumo =
-                          calcularResumo(
-                            vendasDoMes
-                          );
+                          <div>
+                            <p className="text-xs opacity-50">
+                              FECHAMENTO
+                            </p>
 
-                        return (
-                          <button
-                            key={mes}
-                            onClick={() =>
-                              setMesSelecionado(
-                                mes
-                              )
-                            }
-                            className={
-                              "w-full text-left p-5 rounded-2xl border transition active:scale-[0.98] " +
-                              card
-                            }
-                          >
-                            <div className="flex items-center justify-between">
+                            <h2 className="text-xl font-bold">
+                              #{String(
+                                f.id
+                              ).padStart(
+                                3,
+                                "0"
+                              )}
+                            </h2>
 
-                              <div className="flex items-center gap-4">
+                            <p className="text-xs opacity-50 mt-1">
+                              {new Date(
+                                f.data
+                              ).toLocaleString(
+                                "pt-BR"
+                              )}
+                            </p>
+                          </div>
 
-                                <div className="w-12 h-12 rounded-2xl bg-[#D6FF57] text-black flex items-center justify-center">
-                                  <span className="material-symbols-rounded">
-                                    calendar_month
-                                  </span>
-                                </div>
+                          <div className="text-right">
+                            <p className="text-xs opacity-50">
+                              Total
+                            </p>
 
-                                <div>
-                                  <p className="font-bold capitalize">
-                                    {getNomeMes(
-                                      mes
-                                    )}
-                                  </p>
+                            <p className="text-2xl font-bold text-[#D6FF57]">
+                              R${" "}
+                              {f.total.toFixed(
+                                2
+                              )}
+                            </p>
 
-                                  <p className="text-xs opacity-60 mt-1">
-                                    {
-                                      resumo.quantidadeVendas
-                                    }{" "}
-                                    venda
-                                    {resumo.quantidadeVendas !==
-                                    1
-                                      ? "s"
-                                      : ""}
-                                  </p>
-                                </div>
+                            <p className="text-xs opacity-50">
+                              {f.vendas}{" "}
+                              vendas •{" "}
+                              {
+                                f.totalItens
+                              }{" "}
+                              itens
+                            </p>
+                          </div>
 
-                              </div>
+                        </div>
 
-                              <div className="text-right">
+                      </div>
 
-                                <p className="font-bold">
+                      {/* PAGAMENTOS */}
+
+                      <div className="px-5 pb-4">
+
+                        <p className="text-[10px] uppercase opacity-50 mb-2">
+                          Pagamentos
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-2">
+
+                          {Object.entries(
+                            f.pagamentos
+                          ).map(
+                            ([
+                              nome,
+                              dados,
+                            ]) => (
+                              <div
+                                key={
+                                  nome
+                                }
+                                className="p-3 rounded-xl bg-zinc-800 text-white"
+                              >
+                                <p className="text-[10px] uppercase opacity-50">
+                                  {
+                                    nome
+                                  }
+                                </p>
+
+                                <p className="font-bold text-[#D6FF57]">
                                   R${" "}
-                                  {resumo.totalGeral.toFixed(
+                                  {dados.total.toFixed(
                                     2
                                   )}
                                 </p>
-
-                                <span className="material-symbols-rounded opacity-40 mt-1">
-                                  chevron_right
-                                </span>
-
                               </div>
-
-                            </div>
-                          </button>
-                        );
-                      }
-                    )}
-
-                  </div>
-                )}
-              </>
-            )}
-
-            {/* =================================================
-                RELATÓRIO DO MÊS
-            ================================================= */}
-
-            {mesSelecionado &&
-              resumoMes && (
-                <div>
-
-                  {/* CABEÇALHO */}
-
-                  <button
-                    onClick={() =>
-                      setMesSelecionado(
-                        null
-                      )
-                    }
-                    className="flex items-center gap-2 text-sm opacity-70 hover:opacity-100 mb-5"
-                  >
-                    <span className="material-symbols-rounded">
-                      arrow_back
-                    </span>
-
-                    Voltar para Fechamentos
-                  </button>
-
-                  <div className="flex justify-between items-start">
-
-                    <div>
-                      <p className="text-xs uppercase opacity-50">
-                        Fechamento mensal
-                      </p>
-
-                      <h1 className="text-3xl font-bold capitalize mt-1">
-                        {getNomeMes(
-                          mesSelecionado
-                        )}
-                      </h1>
-                    </div>
-
-                    <div className="w-12 h-12 rounded-2xl bg-[#D6FF57] text-black flex items-center justify-center">
-                      <span className="material-symbols-rounded">
-                        lock
-                      </span>
-                    </div>
-
-                  </div>
-
-                  {/* TOTAL GERAL */}
-
-                  <div
-                    className={
-                      "mt-5 p-6 rounded-2xl border " +
-                      card
-                    }
-                  >
-                    <p className="text-xs uppercase opacity-50">
-                      Total do mês
-                    </p>
-
-                    <p className="text-4xl font-bold mt-2">
-                      R${" "}
-                      {resumoMes.totalGeral.toFixed(
-                        2
-                      )}
-                    </p>
-
-                    <div className="grid grid-cols-2 gap-3 mt-5">
-
-                      <div className="p-3 rounded-xl bg-zinc-800/60">
-                        <p className="text-[10px] uppercase opacity-50">
-                          Vendas
-                        </p>
-
-                        <p className="font-bold mt-1">
-                          {
-                            resumoMes.quantidadeVendas
-                          }
-                        </p>
-                      </div>
-
-                      <div className="p-3 rounded-xl bg-zinc-800/60">
-                        <p className="text-[10px] uppercase opacity-50">
-                          Produtos
-                        </p>
-
-                        <p className="font-bold mt-1">
-                          {Object.values(
-                            resumoMes.mapa
-                          ).reduce(
-                            (s, p) =>
-                              s +
-                              p.qtd,
-                            0
+                            )
                           )}
-                        </p>
+
+                        </div>
+
                       </div>
 
-                    </div>
-                  </div>
+                      {/* PRODUTOS */}
 
-                  {/* =================================================
-                      FORMAS DE PAGAMENTO
-                  ================================================= */}
+                      <div className="border-t border-zinc-800 p-5">
 
-                  <div className="mt-4">
-
-                    <h2 className="font-bold text-lg">
-                      💳 Formas de pagamento
-                    </h2>
-
-                    <div className="mt-3 space-y-3">
-
-                      {Object.entries(
-                        resumoMes.porPagamento
-                      ).map(
-                        ([
-                          pagamentoAtual,
-                          dados,
-                        ]) => (
-                          <div
-                            key={
-                              pagamentoAtual
-                            }
-                            className="rounded-2xl bg-zinc-800 text-white overflow-hidden"
-                          >
-
-                            <div className="p-4 flex justify-between items-center border-b border-zinc-700">
-
-                              <div className="flex items-center gap-3">
-
-                                <div className="w-10 h-10 rounded-xl bg-zinc-700 flex items-center justify-center">
-                                  <span className="material-symbols-rounded">
-                                    {getPagamentoIcon(
-                                      pagamentoAtual
-                                    )}
-                                  </span>
-                                </div>
-
-                                <div>
-                                  <p className="font-bold uppercase text-sm">
-                                    {
-                                      pagamentoAtual
-                                    }
-                                  </p>
-
-                                  <p className="text-[10px] opacity-50">
-                                    {Object.values(
-                                      dados.produtos
-                                    ).reduce(
-                                      (
-                                        s,
-                                        p
-                                      ) =>
-                                        s +
-                                        p.qtd,
-                                      0
-                                    )}{" "}
-                                    produtos
-                                  </p>
-                                </div>
-
-                              </div>
-
-                              <b className="text-[#D6FF57]">
-                                R${" "}
-                                {Number(
-                                  dados.total
-                                ).toFixed(
-                                  2
-                                )}
-                              </b>
-
-                            </div>
-
-                            {/* PRODUTOS */}
-
-                            <div className="p-4">
-
-                              <p className="text-[10px] uppercase opacity-40 mb-3">
-                                Produtos vendidos
-                              </p>
-
-                              <div className="space-y-3">
-
-                                {Object.entries(
-                                  dados.produtos
-                                ).map(
-                                  ([
-                                    nome,
-                                    produto,
-                                  ]) => (
-                                    <div
-                                      key={
-                                        nome
-                                      }
-                                      className="flex justify-between items-center"
-                                    >
-
-                                      <div className="flex items-center gap-2">
-
-                                        <span className="font-bold text-[#D6FF57]">
-                                          {
-                                            produto.qtd
-                                          }x
-                                        </span>
-
-                                        <span className="text-xs">
-                                          {
-                                            nome
-                                          }
-                                        </span>
-
-                                      </div>
-
-                                      <span className="text-xs opacity-70">
-                                        R${" "}
-                                        {produto.total.toFixed(
-                                          2
-                                        )}
-                                      </span>
-
-                                    </div>
-                                  )
-                                )}
-
-                              </div>
-                            </div>
-
-                          </div>
-                        )
-                      )}
-
-                    </div>
-                  </div>
-
-                  {/* =================================================
-                      PRODUTOS GERAIS
-                  ================================================= */}
-
-                  <div
-                    className={
-                      "mt-4 p-5 rounded-2xl border " +
-                      card
-                    }
-                  >
-
-                    <p className="font-bold">
-                      📦 Produtos vendidos
-                    </p>
-
-                    <div className="mt-4 space-y-3">
-
-                      {Object.entries(
-                        resumoMes.mapa
-                      ).map(
-                        ([
-                          nome,
-                          dados,
-                        ]) => (
-                          <div
-                            key={nome}
-                            className="flex justify-between items-center p-3 rounded-xl bg-zinc-800/60"
-                          >
-
-                            <div>
-                              <p className="text-sm font-semibold">
-                                {nome}
-                              </p>
-
-                              <p className="text-xs opacity-50 mt-1">
-                                {
-                                  dados.qtd
-                                }{" "}
-                                unidades
-                              </p>
-                            </div>
-
-                            <b>
-                              R${" "}
-                              {dados.total.toFixed(
-                                2
-                              )}
-                            </b>
-
-                          </div>
-                        )
-                      )}
-
-                      {Object.keys(
-                        resumoMes.mapa
-                      ).length ===
-                        0 && (
-                        <p className="text-xs opacity-60">
-                          Nenhum produto
-                          vendido.
+                        <p className="text-[10px] uppercase opacity-50 mb-3">
+                          Produtos vendidos
                         </p>
-                      )}
 
-                    </div>
-                  </div>
+                        <div className="space-y-2">
 
-                  {/* =================================================
-                      HISTÓRICO DO MÊS
-                  ================================================= */}
-
-                  <div className="mt-5">
-
-                    <div className="flex justify-between items-center">
-
-                      <h2 className="font-bold text-lg">
-                        🧾 Vendas do mês
-                      </h2>
-
-                      <span className="text-xs opacity-50">
-                        {
-                          vendasMesSelecionado.length
-                        }{" "}
-                        registros
-                      </span>
-
-                    </div>
-
-                    <div className="mt-3 space-y-3">
-
-                      {vendasMesSelecionado
-                        .slice()
-                        .sort(
-                          (
-                            a,
-                            b
-                          ) =>
-                            new Date(
-                              b.created_at
-                            ).getTime() -
-                            new Date(
-                              a.created_at
-                            ).getTime()
-                        )
-                        .map(
-                          (venda) => {
-                            let itens: CartItem[] =
-                              [];
-
-                            try {
-                              itens =
-                                JSON.parse(
-                                  venda.itens
-                                );
-                            } catch {
-                              itens =
-                                [];
-                            }
-
-                            return (
+                          {Object.entries(
+                            f.produtos
+                          ).map(
+                            ([
+                              nome,
+                              produto,
+                            ]) => (
                               <div
                                 key={
-                                  venda.id
+                                  nome
                                 }
-                                className={
-                                  "p-4 rounded-2xl border " +
-                                  card
-                                }
+                                className="flex justify-between text-sm"
                               >
-
-                                <div className="flex justify-between items-center">
-
-                                  <div>
-                                    <b>
-                                      Venda #
-                                      {
-                                        venda.id
-                                      }
-                                    </b>
-
-                                    <p className="text-[10px] opacity-50 mt-1">
-                                      {new Date(
-                                        venda.created_at
-                                      ).toLocaleString(
-                                        "pt-BR"
-                                      )}
-                                    </p>
-                                  </div>
-
-                                  <div className="flex items-center gap-2">
-
-                                    <span className="text-[10px] px-2 py-1 rounded-full bg-[#D6FF57] text-black uppercase">
-                                      {
-                                        venda.pagamento
-                                      }
-                                    </span>
-
-                                    <button
-                                      onClick={async () => {
-                                        if (
-                                          !confirm(
-                                            "Apagar venda #" +
-                                              venda.id +
-                                              "? O estoque vai voltar."
-                                          )
-                                        )
-                                          return;
-
-                                        const r =
-                                          await fetch(
-                                            "/api/vendas?id=" +
-                                              venda.id,
-                                            {
-                                              method:
-                                                "DELETE",
-                                            }
-                                          );
-
-                                        if (
-                                          !r.ok
-                                        ) {
-                                          showToast(
-                                            "Erro ao apagar venda"
-                                          );
-                                          return;
-                                        }
-
-                                        await fetchVendas();
-                                        await fetchProdutos();
-
-                                        showToast(
-                                          "Venda apagada"
-                                        );
-                                      }}
-                                      className="w-7 h-7 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center"
-                                    >
-                                      <span className="material-symbols-rounded text-[16px]">
-                                        delete
-                                      </span>
-                                    </button>
-
-                                  </div>
-
-                                </div>
-
-                                {/* PRODUTOS DA VENDA */}
-
-                                <div className="mt-3 space-y-2">
-
-                                  {itens.map(
-                                    (
-                                      item
-                                    ) => (
-                                      <div
-                                        key={
-                                          item.id
-                                        }
-                                        className="flex justify-between text-xs"
-                                      >
-
-                                        <span>
-                                          {
-                                            item.cartQtd
-                                          }x{" "}
-                                          {
-                                            item.nome
-                                          }
-                                        </span>
-
-                                        <span>
-                                          R${" "}
-                                          {(
-                                            parseFloat(
-                                              item.preco
-                                            ) *
-                                            item.cartQtd
-                                          ).toFixed(
-                                            2
-                                          )}
-                                        </span>
-
-                                      </div>
-                                    )
-                                  )}
-
-                                </div>
-
-                                <div className="border-t border-zinc-800 mt-3 pt-3 flex justify-between">
-
-                                  <span className="text-xs opacity-50">
-                                    Total
-                                  </span>
-
-                                  <b>
-                                    R${" "}
-                                    {Number(
-                                      venda.total
-                                    ).toFixed(
-                                      2
-                                    )}
-                                  </b>
-
-                                </div>
-
-                                {venda.descricao && (
-                                  <div className="mt-3 text-xs p-3 bg-zinc-800 rounded-xl text-white">
-                                    📝{" "}
+                                <span>
+                                  <b className="text-[#D6FF57]">
                                     {
-                                      venda.descricao
-                                    }
-                                  </div>
-                                )}
+                                      produto.qtd
+                                    }x
+                                  </b>{" "}
+                                  {nome}
+                                </span>
 
+                                <span>
+                                  R${" "}
+                                  {produto.total.toFixed(
+                                    2
+                                  )}
+                                </span>
                               </div>
-                            );
+                            )
+                          )}
+
+                        </div>
+
+                      </div>
+
+                      {/* RODAPÉ */}
+
+                      <div className="p-4 border-t border-zinc-800 flex justify-between items-center">
+
+                        <span className="text-xs opacity-40">
+                          Ciclo encerrado
+                        </span>
+
+                        <button
+                          onClick={() =>
+                            excluirFechamento(
+                              f.id
+                            )
                           }
-                        )}
+                          className="px-3 py-2 rounded-xl bg-red-500/10 text-red-400 text-xs"
+                        >
+                          Excluir
+                        </button>
+
+                      </div>
 
                     </div>
-                  </div>
+                  )
+                )}
 
-                </div>
-              )}
+            </div>
 
           </div>
         )}
 
-        {/* =====================================================
-            CONFIGURAÇÕES
-        ===================================================== */}
+        {/* CONFIGURAÇÕES */}
 
         {tab === "settings" && (
           <div className="max-w-[520px] mx-auto">
@@ -1837,13 +1632,11 @@ export default function App() {
               <div className="flex justify-between items-center">
 
                 <span className="flex items-center gap-2">
-
                   <span className="material-symbols-rounded">
                     dark_mode
                   </span>
 
                   Tema
-
                 </span>
 
                 <button
@@ -1864,20 +1657,6 @@ export default function App() {
 
               </div>
 
-              <div
-                className={
-                  "p-4 rounded-xl " +
-                  (dark
-                    ? "bg-zinc-800"
-                    : "bg-zinc-100")
-                }
-              >
-                {/*
-                  Área reservada para senha
-                  salva no banco.
-                */}
-              </div>
-
               <button
                 onClick={() => {
                   sessionStorage.removeItem(
@@ -1892,14 +1671,15 @@ export default function App() {
               </button>
 
             </div>
+
           </div>
         )}
 
       </main>
 
-      {/* =======================================================
+      {/* =====================================================
           CARRINHO
-      ======================================================= */}
+      ===================================================== */}
 
       {cart.length > 0 && (
         <div
@@ -1912,18 +1692,18 @@ export default function App() {
           <div className="flex justify-between items-center mb-3">
 
             <b className="flex items-center gap-2">
-
               <span className="material-symbols-rounded">
                 shopping_cart
               </span>
 
               {totalQtd} itens
-
             </b>
 
             <b>
               R${" "}
-              {total.toFixed(2)}
+              {total.toFixed(
+                2
+              )}
             </b>
 
           </div>
@@ -2063,9 +1843,9 @@ export default function App() {
         </div>
       )}
 
-      {/* =======================================================
+      {/* =====================================================
           CHECKOUT
-      ======================================================= */}
+      ===================================================== */}
 
       {showCheckout && (
         <div className="fixed inset-0 bg-black/70 z-[100] flex items-end md:items-center justify-center p-4">
@@ -2097,58 +1877,12 @@ export default function App() {
 
             </div>
 
-            {/* RESUMO DOS PRODUTOS */}
-
-            <div className="rounded-xl bg-zinc-800 p-3 text-white">
-
-              <p className="text-[10px] uppercase opacity-50 mb-2">
-                Produtos
-              </p>
-
-              <div className="space-y-2">
-
-                {cart.map(
-                  (item) => (
-                    <div
-                      key={
-                        item.id
-                      }
-                      className="flex justify-between text-xs"
-                    >
-                      <span>
-                        {
-                          item.cartQtd
-                        }x{" "}
-                        {
-                          item.nome
-                        }
-                      </span>
-
-                      <span>
-                        R${" "}
-                        {(
-                          parseFloat(
-                            item.preco
-                          ) *
-                          item.cartQtd
-                        ).toFixed(
-                          2
-                        )}
-                      </span>
-                    </div>
-                  )
-                )}
-
-              </div>
-
-            </div>
-
             <p className="text-sm opacity-60">
               {totalQtd} itens • R${" "}
-              {total.toFixed(2)}
+              {total.toFixed(
+                2
+              )}
             </p>
-
-            {/* PAGAMENTO */}
 
             <div className="grid grid-cols-4 gap-2">
 
@@ -2190,9 +1924,7 @@ export default function App() {
                   >
 
                     <span className="material-symbols-rounded">
-                      {
-                        m.icon
-                      }
+                      {m.icon}
                     </span>
 
                     <span className="text-[10px] uppercase">
@@ -2207,7 +1939,9 @@ export default function App() {
 
             <textarea
               placeholder="Descrição (cliente, fiado...)"
-              value={descricao}
+              value={
+                descricao
+              }
               onChange={(e) =>
                 setDescricao(
                   e.target.value
@@ -2223,18 +1957,21 @@ export default function App() {
               className="w-full py-4 rounded-xl bg-[#D6FF57] text-black font-bold"
             >
               Confirmar R${" "}
-              {total.toFixed(2)}
+              {total.toFixed(
+                2
+              )}
             </button>
 
           </div>
+
         </div>
       )}
 
-      {/* =======================================================
-          NAVEGAÇÃO INFERIOR
-      ======================================================= */}
+      {/* =====================================================
+          NAVEGAÇÃO
+      ===================================================== */}
 
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[96%] max-w-[560px]">
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[96%] max-w-[520px]">
 
         <div className="relative rounded-[28px] p-2 flex justify-between items-center bg-[#151517] border border-zinc-800 shadow-2xl">
 
@@ -2248,7 +1985,9 @@ export default function App() {
                 2 +
                 "%",
               width:
-                16 +
+                100 /
+                  TABS.length -
+                4 +
                 "%",
             }}
           >
@@ -2270,23 +2009,16 @@ export default function App() {
           {TABS.map(
             (t) => (
               <button
-                key={t.id}
-                onClick={() => {
+                key={
+                  t.id
+                }
+                onClick={() =>
                   setTab(
                     t.id
-                  );
-
-                  if (
-                    t.id !==
-                    "fechamentos"
-                  ) {
-                    setMesSelecionado(
-                      null
-                    );
-                  }
-                }}
+                  )
+                }
                 className={
-                  "relative z-10 w-[56px] h-[56px] flex items-center justify-center " +
+                  "relative z-10 flex-1 h-[56px] flex items-center justify-center " +
                   (tab ===
                   t.id
                     ? "opacity-0"
@@ -2295,9 +2027,7 @@ export default function App() {
               >
 
                 <span className="material-symbols-rounded text-[26px]">
-                  {
-                    t.icon
-                  }
+                  {t.icon}
                 </span>
 
               </button>
@@ -2305,17 +2035,12 @@ export default function App() {
           )}
 
         </div>
+
       </div>
 
     </div>
   );
 }
-
-/*
- * ============================================================
- * COMPONENTE ADICIONAR PRODUTO
- * ============================================================
- */
 
 function AddProduto({
   fetchProdutos,
@@ -2351,25 +2076,30 @@ function AddProduto({
     setLoading(true);
 
     try {
-      const r = await fetch(
-        "/api/produtos",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-          body: JSON.stringify({
-            nome: form.nome,
-            preco: form.preco,
-            qtd: parseInt(
-              form.qtd || "0"
+      const r =
+        await fetch(
+          "/api/produtos",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify(
+              {
+                nome: form.nome,
+                preco:
+                  form.preco,
+                qtd: parseInt(
+                  form.qtd ||
+                    "0"
+                ),
+                imagem:
+                  form.imagem,
+              }
             ),
-            imagem:
-              form.imagem,
-          }),
-        }
-      );
+          }
+        );
 
       if (!r.ok) {
         throw new Error(
@@ -2432,10 +2162,12 @@ function AddProduto({
                   : "border-transparent")
               }
             >
+
               <img
                 src={img.url}
                 className="w-full h-full object-contain"
               />
+
             </button>
           )
         )}
@@ -2446,7 +2178,9 @@ function AddProduto({
         <div className="flex gap-3 items-center p-2 bg-zinc-800 rounded-xl text-white">
 
           <img
-            src={form.imagem}
+            src={
+              form.imagem
+            }
             className="w-12 h-12 bg-white rounded p-1 object-contain"
           />
 
@@ -2467,9 +2201,7 @@ function AddProduto({
         onChange={(e) =>
           setForm({
             ...form,
-            nome:
-              e.target
-                .value,
+            nome: e.target.value,
           })
         }
         className="w-full p-3 rounded-xl bg-transparent border border-zinc-700 text-white"
@@ -2487,8 +2219,7 @@ function AddProduto({
             setForm({
               ...form,
               preco:
-                e.target
-                  .value,
+                e.target.value,
             })
           }
           className="p-3 rounded-xl bg-transparent border border-zinc-700 text-white"
@@ -2497,15 +2228,12 @@ function AddProduto({
         <input
           placeholder="Qtd"
           type="number"
-          value={
-            form.qtd
-          }
+          value={form.qtd}
           onChange={(e) =>
             setForm({
               ...form,
               qtd:
-                e.target
-                  .value,
+                e.target.value,
             })
           }
           className="p-3 rounded-xl bg-transparent border border-zinc-700 text-white"
@@ -2514,9 +2242,7 @@ function AddProduto({
       </div>
 
       <button
-        onClick={
-          save
-        }
+        onClick={save}
         disabled={
           loading
         }
