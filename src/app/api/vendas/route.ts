@@ -7,6 +7,14 @@ import { db, initDB } from "../../../lib/db";
 |--------------------------------------------------------------------------
 | GARANTIR ESTRUTURA DA TABELA
 |--------------------------------------------------------------------------
+|
+| A coluna fechamento_id identifica se a venda ainda está aberta
+| ou se já pertence a algum fechamento.
+|
+| NULL = venda atual / aberta
+| número = venda vinculada a um fechamento
+|
+|--------------------------------------------------------------------------
 */
 
 async function garantirColunaFechamento() {
@@ -15,12 +23,22 @@ async function garantirColunaFechamento() {
       ALTER TABLE vendas
       ADD COLUMN fechamento_id INTEGER DEFAULT NULL
     `);
-  } catch (e: any) {
+  } catch {
     /*
-     * Se a coluna já existir, o SQLite/Turso retorna erro.
-     * Nesse caso simplesmente ignoramos.
+     * Se a coluna já existir, ignoramos o erro.
      */
   }
+}
+
+/*
+|--------------------------------------------------------------------------
+| GARANTIR BANCO
+|--------------------------------------------------------------------------
+*/
+
+async function prepararBanco() {
+  await initDB();
+  await garantirColunaFechamento();
 }
 
 /*
@@ -30,39 +48,41 @@ async function garantirColunaFechamento() {
 |
 | /api/vendas
 |
-| Por padrão:
-| retorna somente vendas ainda NÃO fechadas.
+| Retorna somente as vendas atuais.
 |
 | /api/vendas?historico=true
 |
-| retorna TODAS as vendas.
+| Retorna todas as vendas que ainda estiverem na tabela.
 |
 |--------------------------------------------------------------------------
 */
 
 export async function GET(req: Request) {
   try {
-    await initDB();
+    await prepararBanco();
 
-    await garantirColunaFechamento();
-
-    const { searchParams } =
-      new URL(req.url);
+    const { searchParams } = new URL(req.url);
 
     const historico =
       searchParams.get("historico") === "true";
 
     let sql = `
-      SELECT *
+      SELECT
+        id,
+        itens,
+        total,
+        pagamento,
+        descricao,
+        created_at,
+        fechamento_id
       FROM vendas
     `;
 
     /*
-     * DASH
-     *
-     * Somente vendas que ainda
-     * não pertencem a fechamento.
-     */
+    |--------------------------------------------------------------------------
+    | VENDAS ATUAIS
+    |--------------------------------------------------------------------------
+    */
 
     if (!historico) {
       sql += `
@@ -74,20 +94,20 @@ export async function GET(req: Request) {
       ORDER BY id DESC
     `;
 
-    const rs = await db.execute(sql);
+    const result = await db.execute(sql);
 
-    return NextResponse.json(rs.rows);
-
-  } catch (e: any) {
-
+    return NextResponse.json(result.rows);
+  } catch (error: any) {
     console.error(
       "GET /api/vendas:",
-      e
+      error
     );
 
     return NextResponse.json(
       {
-        error: e.message,
+        error:
+          error?.message ||
+          "Erro ao buscar vendas.",
       },
       {
         status: 500,
@@ -103,29 +123,33 @@ export async function GET(req: Request) {
 |
 | Cria uma nova venda.
 |
-| fechamento_id começa NULL.
+| Toda nova venda começa com:
 |
-| Isso significa:
+| fechamento_id = NULL
 |
-| VENDA ABERTA
-|
-| Ela aparecerá no Dash até o próximo fechamento.
+| Portanto ela pertence ao ciclo atual.
 |
 |--------------------------------------------------------------------------
 */
 
 export async function POST(req: Request) {
   try {
-    await initDB();
+    await prepararBanco();
 
-    await garantirColunaFechamento();
+    const body = await req.json();
 
     const {
       itens,
       total,
       pagamento,
       descricao,
-    } = await req.json();
+    } = body;
+
+    /*
+    |--------------------------------------------------------------------------
+    | VALIDAR ITENS
+    |--------------------------------------------------------------------------
+    */
 
     if (
       !Array.isArray(itens) ||
@@ -144,12 +168,119 @@ export async function POST(req: Request) {
 
     /*
     |--------------------------------------------------------------------------
+    | VALIDAR PRODUTOS
+    |--------------------------------------------------------------------------
+    */
+
+    for (const item of itens) {
+      const produtoId =
+        Number(item?.id);
+
+      const quantidade =
+        Number(item?.cartQtd);
+
+      if (
+        !Number.isFinite(produtoId) ||
+        produtoId <= 0
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Produto inválido.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      if (
+        !Number.isFinite(quantidade) ||
+        quantidade <= 0
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Quantidade inválida.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | BAIXAR ESTOQUE
     |--------------------------------------------------------------------------
     */
 
     for (const item of itens) {
+      const produtoId =
+        Number(item.id);
 
+      const quantidade =
+        Number(item.cartQtd);
+
+      /*
+      | Verifica se existe estoque suficiente.
+      */
+
+      const produtoResult =
+        await db.execute({
+          sql: `
+            SELECT
+              id,
+              qtd
+            FROM produtos
+            WHERE id = ?
+            LIMIT 1
+          `,
+          args: [produtoId],
+        });
+
+      if (
+        produtoResult.rows.length === 0
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              `Produto ID ${produtoId} não encontrado.`,
+          },
+          {
+            status: 404,
+          }
+        );
+      }
+
+      const estoqueAtual =
+        Number(
+          produtoResult.rows[0].qtd
+        ) || 0;
+
+      if (
+        estoqueAtual < quantidade
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              `Estoque insuficiente para o produto ID ${produtoId}. Estoque disponível: ${estoqueAtual}.`,
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | ATUALIZAR ESTOQUE
+    |--------------------------------------------------------------------------
+    */
+
+    for (const item of itens) {
       await db.execute({
         sql: `
           UPDATE produtos
@@ -157,21 +288,45 @@ export async function POST(req: Request) {
           WHERE id = ?
         `,
         args: [
-          Number(item.cartQtd) || 0,
+          Number(item.cartQtd),
           Number(item.id),
         ],
       });
-
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | VALORES
+    |--------------------------------------------------------------------------
+    */
+
+    const totalNumerico =
+      Number(total) || 0;
+
+    const formaPagamento =
+      String(
+        pagamento || "outro"
+      )
+        .trim()
+        .toLowerCase();
+
+    const descricaoTexto =
+      String(
+        descricao || ""
+      ).trim();
 
     /*
     |--------------------------------------------------------------------------
     | CRIAR VENDA
     |--------------------------------------------------------------------------
     |
-    | fechamento_id não é informado.
+    | fechamento_id fica NULL.
     |
-    | Portanto fica NULL.
+    | Isso é MUITO importante.
+    |
+    | A venda só será encerrada quando o usuário
+    | clicar em "Fazer fechamento".
+    |
     |--------------------------------------------------------------------------
     */
 
@@ -190,32 +345,48 @@ export async function POST(req: Request) {
         args: [
           JSON.stringify(itens),
 
-          Number(total) || 0,
+          totalNumerico,
 
-          pagamento || "outro",
+          formaPagamento,
 
-          descricao || "",
+          descricaoTexto,
         ],
       });
 
-    return NextResponse.json({
-      ok: true,
+    /*
+    |--------------------------------------------------------------------------
+    | RESPOSTA
+    |--------------------------------------------------------------------------
+    */
 
-      id: Number(
-        result.lastInsertRowid
-      ),
-    });
+    return NextResponse.json(
+      {
+        ok: true,
 
-  } catch (e: any) {
+        success: true,
 
+        id: Number(
+          result.lastInsertRowid
+        ),
+
+        message:
+          "Venda registrada com sucesso.",
+      },
+      {
+        status: 201,
+      }
+    );
+  } catch (error: any) {
     console.error(
       "POST /api/vendas:",
-      e
+      error
     );
 
     return NextResponse.json(
       {
-        error: e.message,
+        error:
+          error?.message ||
+          "Erro ao registrar venda.",
       },
       {
         status: 500,
@@ -229,29 +400,52 @@ export async function POST(req: Request) {
 | DELETE
 |--------------------------------------------------------------------------
 |
-| Exclui uma venda individual.
+| /api/vendas?id=123
+|
+| Exclui uma venda ainda aberta.
+|
+| IMPORTANTE:
+|
+| Ao excluir uma venda aberta, os produtos voltam para o estoque.
+|
+| Venda que já pertence a um fechamento não pode ser excluída.
 |
 |--------------------------------------------------------------------------
 */
 
 export async function DELETE(req: Request) {
   try {
-
-    await initDB();
-
-    await garantirColunaFechamento();
+    await prepararBanco();
 
     const { searchParams } =
       new URL(req.url);
 
-    const id =
+    const idTexto =
       searchParams.get("id");
 
-    if (!id) {
+    if (!idTexto) {
       return NextResponse.json(
         {
           error:
-            "ID da venda não informado",
+            "ID da venda não informado.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const id =
+      Number(idTexto);
+
+    if (
+      !Number.isFinite(id) ||
+      id <= 0
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "ID da venda inválido.",
         },
         {
           status: 400,
@@ -268,12 +462,15 @@ export async function DELETE(req: Request) {
     const vendaResult =
       await db.execute({
         sql: `
-          SELECT *
+          SELECT
+            id,
+            itens,
+            fechamento_id
           FROM vendas
           WHERE id = ?
           LIMIT 1
         `,
-        args: [Number(id)],
+        args: [id],
       });
 
     if (
@@ -295,11 +492,7 @@ export async function DELETE(req: Request) {
 
     /*
     |--------------------------------------------------------------------------
-    | NÃO PERMITIR APAGAR VENDA JÁ FECHADA
-    |--------------------------------------------------------------------------
-    |
-    | Isso protege o histórico dos fechamentos.
-    |
+    | PROTEGER VENDA FECHADA
     |--------------------------------------------------------------------------
     */
 
@@ -307,7 +500,6 @@ export async function DELETE(req: Request) {
       venda.fechamento_id !== null &&
       venda.fechamento_id !== undefined
     ) {
-
       return NextResponse.json(
         {
           error:
@@ -317,17 +509,15 @@ export async function DELETE(req: Request) {
           status: 400,
         }
       );
-
     }
 
     /*
     |--------------------------------------------------------------------------
-    | DEVOLVER PRODUTOS AO ESTOQUE
+    | DEVOLVER ESTOQUE
     |--------------------------------------------------------------------------
     */
 
     try {
-
       const itens =
         JSON.parse(
           String(
@@ -336,8 +526,34 @@ export async function DELETE(req: Request) {
         );
 
       if (Array.isArray(itens)) {
-
         for (const item of itens) {
+          const produtoId =
+            Number(item?.id);
+
+          const quantidade =
+            Number(
+              item?.cartQtd ??
+                item?.qtd ??
+                0
+            );
+
+          if (
+            !Number.isFinite(
+              produtoId
+            ) ||
+            produtoId <= 0
+          ) {
+            continue;
+          }
+
+          if (
+            !Number.isFinite(
+              quantidade
+            ) ||
+            quantidade <= 0
+          ) {
+            continue;
+          }
 
           await db.execute({
             sql: `
@@ -346,53 +562,81 @@ export async function DELETE(req: Request) {
               WHERE id = ?
             `,
             args: [
-              Number(
-                item.cartQtd
-              ) || 0,
-
-              Number(item.id),
+              quantidade,
+              produtoId,
             ],
           });
-
         }
-
       }
+    } catch (error) {
+      console.error(
+        "Erro ao devolver estoque:",
+        error
+      );
 
-    } catch {
       /*
-       * Caso os itens estejam inválidos,
-       * continua para excluir a venda.
+       * Não interrompe a exclusão caso o JSON
+       * dos itens esteja inválido.
        */
     }
 
     /*
     |--------------------------------------------------------------------------
-    | APAGAR VENDA
+    | EXCLUIR VENDA
     |--------------------------------------------------------------------------
     */
 
-    await db.execute({
-      sql: `
-        DELETE FROM vendas
-        WHERE id = ?
-      `,
-      args: [Number(id)],
-    });
+    const deleteResult =
+      await db.execute({
+        sql: `
+          DELETE FROM vendas
+          WHERE id = ?
+          AND fechamento_id IS NULL
+        `,
+        args: [id],
+      });
+
+    if (
+      Number(
+        deleteResult.rowsAffected
+      ) === 0
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "A venda não pôde ser excluída.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | RESPOSTA
+    |--------------------------------------------------------------------------
+    */
 
     return NextResponse.json({
       ok: true,
+
+      success: true,
+
+      message:
+        "Venda excluída e estoque devolvido.",
     });
-
-  } catch (e: any) {
-
+  } catch (error: any) {
     console.error(
       "DELETE /api/vendas:",
-      e
+      error
     );
 
     return NextResponse.json(
       {
-        error: e.message,
+        error:
+          error?.message ||
+          "Erro ao excluir venda.",
       },
       {
         status: 500,
