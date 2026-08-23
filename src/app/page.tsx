@@ -136,7 +136,7 @@ export default function App(){
     <div className={"min-h-screen flex flex-col items-center "+bg}>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"/>
       {toast && <div className="fixed top-6 left-1/2 -translate-x-1/2 bg-zinc-900 text-white px-5 py-3 rounded-full text-sm z-[100] border border-zinc-700">{toast}</div>}
-      <header className="w-full max-w-[1200px] px-6 py-4 flex justify-between"><div className="font-bold">Freezer da Amanda</div><div className="text-xs opacity-50">n</div></header>
+      <header className="w-full max-w-[1200px] px-6 py-4 flex justify-between"><div className="font-bold">Freezer da Amanda</div><div className="text-xs opacity-50"></div></header>
 
       <main className="w-full max-w-[1200px] flex-1 px-6 pb-48 pt-2">
         {tab==="home" && (
@@ -231,8 +231,8 @@ export default function App(){
             <div className={"mt-6 p-6 rounded-2xl border space-y-6 "+card}>
               <div className="flex justify-between items-center"><span className="flex items-center gap-2"><span className="material-symbols-rounded">dark_mode</span> Tema</span><button onClick={()=>setDark(!dark)} className={"px-4 py-2 rounded-full border "+(dark?"bg-zinc-800":"bg-zinc-100")}>{dark?"Dark":"Light"}</button></div>
               <div className={"p-4 rounded-xl "+(dark?"bg-zinc-800":"bg-zinc-100")}>
-                <p className="text-sm font-semibold">Trocar senha (atual: {savedPass})</p>
-                <div className="flex gap-2 mt-3"><input placeholder="Nova senha" value={newPass} onChange={e=>setNewPass(e.target.value)} className="flex-1 p-2 rounded-lg bg-transparent border border-zinc-600"/><button onClick={()=>{ if(newPass.length<4) return showToast("Min 4 dígitos"); localStorage.setItem("freezer_pass", newPass); setSavedPass(newPass); setNewPass(""); showToast("Senha alterada!"); }} className="px-4 py-2 rounded-lg bg-[#D6FF57] text-black font-bold">Salvar</button></div>
+                  {/*<p className="text-sm font-semibold">Trocar senha (atual: {savedPass})</p>*/}
+                  {/*<div className="flex gap-2 mt-3"><input placeholder="Nova senha" value={newPass} onChange={e=>setNewPass(e.target.value)} className="flex-1 p-2 rounded-lg bg-transparent border border-zinc-600"/><button onClick={()=>{ if(newPass.length<4) return showToast("Min 4 dígitos"); localStorage.setItem("freezer_pass", newPass); setSavedPass(newPass); setNewPass(""); showToast("Senha alterada!"); }} className="px-4 py-2 rounded-lg bg-[#D6FF57] text-black font-bold">Salvar</button></div>*/}
               </div>
               <button onClick={()=>{ sessionStorage.removeItem("freezer_logged"); setLogged(false); }} className="w-full py-3 rounded-xl border border-red-500/30 text-red-500">Sair</button>
             </div>
