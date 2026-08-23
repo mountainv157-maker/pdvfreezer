@@ -1,10 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@libsql/client";
+export const runtime = "nodejs";
 
-const db = createClient({
-  url: process.env.TURSO_DATABASE_URL!,
-  authToken: process.env.TURSO_AUTH_TOKEN!,
-});
+import { NextRequest, NextResponse } from "next/server";
+import { db, initDB } from "../../../lib/db";
 
 /*
 |--------------------------------------------------------------------------
@@ -66,11 +63,19 @@ type FechamentoResumo = {
 
 /*
 |--------------------------------------------------------------------------
-| BANCO
+| CRIAR TABELAS
 |--------------------------------------------------------------------------
 */
 
-async function criarTabela() {
+async function criarTabelas() {
+  await initDB();
+
+  /*
+  |--------------------------------------------------------------------------
+  | FECHAMENTOS
+  |--------------------------------------------------------------------------
+  */
+
   await db.execute(`
     CREATE TABLE IF NOT EXISTS fechamentos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,11 +95,44 @@ async function criarTabela() {
       resumo TEXT NOT NULL DEFAULT '{}'
     )
   `);
+
+  /*
+  |--------------------------------------------------------------------------
+  | LOG / HISTÓRICO DE VENDAS
+  |--------------------------------------------------------------------------
+  |
+  | Quando um fechamento é realizado:
+  |
+  | vendas -> vendas_log
+  |
+  | Depois a venda é removida da tabela vendas.
+  |
+  | Assim o Log continua mostrando tudo.
+  |
+  */
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS vendas_log (
+      id INTEGER PRIMARY KEY,
+
+      itens TEXT NOT NULL DEFAULT '[]',
+
+      total REAL NOT NULL DEFAULT 0,
+
+      pagamento TEXT NOT NULL DEFAULT 'outro',
+
+      descricao TEXT NOT NULL DEFAULT '',
+
+      created_at TEXT NOT NULL,
+
+      fechamento_id INTEGER
+    )
+  `);
 }
 
 /*
 |--------------------------------------------------------------------------
-| NORMALIZAÇÃO DA DESCRIÇÃO
+| NORMALIZAR DESCRIÇÃO
 |--------------------------------------------------------------------------
 |
 | Eduardo
@@ -103,7 +141,7 @@ async function criarTabela() {
 |  Eduardo
 | eDuArDo
 |
-| viram:
+| todos viram:
 |
 | eduardo
 |
@@ -142,7 +180,7 @@ function obterItens(
 
 /*
 |--------------------------------------------------------------------------
-| MONTAR FECHAMENTO
+| MONTAR RESUMO
 |--------------------------------------------------------------------------
 */
 
@@ -175,7 +213,7 @@ function montarResumo(
 
   /*
   |--------------------------------------------------------------------------
-  | PERCORRE VENDAS
+  | VENDAS
   |--------------------------------------------------------------------------
   */
 
@@ -236,16 +274,7 @@ function montarResumo(
           descricaoNormalizada
         ] = {
           /*
-          |----------------------------------------------------------
           | Mantém a primeira forma digitada.
-          |
-          | Ex:
-          | Eduardo
-          | eduardo
-          |
-          | Se "Eduardo" apareceu primeiro,
-          | o fechamento mostrará "Eduardo".
-          |----------------------------------------------------------
           */
 
           nome: descricaoOriginal,
@@ -305,7 +334,7 @@ function montarResumo(
 
       /*
       |--------------------------------------------------------------------------
-      | PRODUTOS GERAIS
+      | GERAL
       |--------------------------------------------------------------------------
       */
 
@@ -323,7 +352,7 @@ function montarResumo(
 
       /*
       |--------------------------------------------------------------------------
-      | PRODUTOS POR PAGAMENTO
+      | POR PAGAMENTO
       |--------------------------------------------------------------------------
       */
 
@@ -350,7 +379,7 @@ function montarResumo(
 
       /*
       |--------------------------------------------------------------------------
-      | PRODUTOS POR DESCRIÇÃO
+      | POR DESCRIÇÃO
       |--------------------------------------------------------------------------
       */
 
@@ -379,7 +408,7 @@ function montarResumo(
 
   /*
   |--------------------------------------------------------------------------
-  | ORDENA DESCRIÇÕES
+  | ORDENAR DESCRIÇÕES
   |--------------------------------------------------------------------------
   */
 
@@ -423,7 +452,7 @@ function montarResumo(
 |
 | GET /api/fechamentos
 |
-| Lista todos os fechamentos.
+| Lista os fechamentos realizados.
 |
 |--------------------------------------------------------------------------
 */
@@ -432,7 +461,7 @@ export async function GET(
   request: NextRequest
 ) {
   try {
-    await criarTabela();
+    await criarTabelas();
 
     const { searchParams } =
       new URL(request.url);
@@ -487,6 +516,26 @@ export async function GET(
         resumo = {};
       }
 
+      let vendaIds: number[] = [];
+
+      try {
+        const parsed =
+          JSON.parse(
+            String(
+              row.venda_ids ||
+                "[]"
+            )
+          );
+
+        if (Array.isArray(parsed)) {
+          vendaIds = parsed.map(
+            Number
+          );
+        }
+      } catch {
+        vendaIds = [];
+      }
+
       return NextResponse.json({
         id: Number(row.id),
 
@@ -500,26 +549,23 @@ export async function GET(
           ),
 
         total: Number(
-          row.total
+          row.total || 0
         ),
 
         quantidade_vendas:
           Number(
-            row.quantidade_vendas
+            row.quantidade_vendas ||
+              0
           ),
 
         quantidade_itens:
           Number(
-            row.quantidade_itens
+            row.quantidade_itens ||
+              0
           ),
 
         venda_ids:
-          JSON.parse(
-            String(
-              row.venda_ids ||
-                "[]"
-            )
-          ),
+          vendaIds,
 
         resumo,
       });
@@ -527,7 +573,7 @@ export async function GET(
 
     /*
     |--------------------------------------------------------------------------
-    | LISTAR TODOS
+    | LISTAR TODOS OS FECHAMENTOS
     |--------------------------------------------------------------------------
     */
 
@@ -559,17 +605,19 @@ export async function GET(
             ),
 
           total: Number(
-            row.total
+            row.total || 0
           ),
 
           quantidade_vendas:
             Number(
-              row.quantidade_vendas
+              row.quantidade_vendas ||
+                0
             ),
 
           quantidade_itens:
             Number(
-              row.quantidade_itens
+              row.quantidade_itens ||
+                0
             ),
         })
       );
@@ -587,6 +635,7 @@ export async function GET(
       {
         error:
           "Erro ao buscar fechamentos.",
+
         details:
           error?.message,
       },
@@ -599,17 +648,24 @@ export async function GET(
 
 /*
 |--------------------------------------------------------------------------
-| POST
+| POST — FAZER FECHAMENTO
 |--------------------------------------------------------------------------
 |
 | POST /api/fechamentos
 |
-| Faz um novo fechamento.
+| FLUXO:
 |
-| IMPORTANTE:
+| 1. Pega as vendas atuais.
 |
-| O sistema procura somente vendas que ainda não
-| pertencem a nenhum fechamento anterior.
+| 2. Gera o resumo.
+|
+| 3. Cria o fechamento.
+|
+| 4. Copia as vendas para vendas_log.
+|
+| 5. APAGA as vendas atuais.
+|
+| 6. Próxima venda começa um novo ciclo.
 |
 |--------------------------------------------------------------------------
 */
@@ -618,11 +674,11 @@ export async function POST(
   request: NextRequest
 ) {
   try {
-    await criarTabela();
+    await criarTabelas();
 
     /*
     |--------------------------------------------------------------------------
-    | BUSCAR TODAS AS VENDAS
+    | PEGAR VENDAS ATUAIS
     |--------------------------------------------------------------------------
     */
 
@@ -639,7 +695,7 @@ export async function POST(
         ORDER BY id ASC
       `);
 
-    const vendas =
+    const vendas: Venda[] =
       vendasResult.rows.map(
         (row) =>
           ({
@@ -667,77 +723,23 @@ export async function POST(
 
             created_at:
               String(
-                row.created_at
+                row.created_at ||
+                  new Date().toISOString()
               ),
           }) as Venda
       );
 
     /*
     |--------------------------------------------------------------------------
-    | DESCOBRIR VENDAS JÁ FECHADAS
+    | NÃO HÁ VENDAS
     |--------------------------------------------------------------------------
     */
 
-    const fechamentosResult =
-      await db.execute(`
-        SELECT venda_ids
-        FROM fechamentos
-      `);
-
-    const vendasJaFechadas =
-      new Set<number>();
-
-    for (const row of
-      fechamentosResult.rows) {
-      try {
-        const ids =
-          JSON.parse(
-            String(
-              row.venda_ids ||
-                "[]"
-            )
-          );
-
-        if (Array.isArray(ids)) {
-          for (const id of ids) {
-            vendasJaFechadas.add(
-              Number(id)
-            );
-          }
-        }
-      } catch {
-        // Ignora registros inválidos.
-      }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | SOMENTE VENDAS NOVAS
-    |--------------------------------------------------------------------------
-    */
-
-    const vendasDoFechamento =
-      vendas.filter(
-        (venda) =>
-          !vendasJaFechadas.has(
-            venda.id
-          )
-      );
-
-    /*
-    |--------------------------------------------------------------------------
-    | NÃO TEM VENDA NOVA
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-      vendasDoFechamento.length ===
-      0
-    ) {
+    if (vendas.length === 0) {
       return NextResponse.json(
         {
           error:
-            "Não existem vendas novas para fazer um fechamento.",
+            "Não existem vendas para fazer o fechamento.",
         },
         {
           status: 400,
@@ -752,9 +754,7 @@ export async function POST(
     */
 
     const resumo =
-      montarResumo(
-        vendasDoFechamento
-      );
+      montarResumo(vendas);
 
     /*
     |--------------------------------------------------------------------------
@@ -789,22 +789,22 @@ export async function POST(
 
     /*
     |--------------------------------------------------------------------------
-    | IDS DAS VENDAS
+    | IDS
     |--------------------------------------------------------------------------
     */
 
     const vendaIds =
-      vendasDoFechamento.map(
+      vendas.map(
         (v) => v.id
       );
 
     /*
     |--------------------------------------------------------------------------
-    | SALVAR NO TURSO
+    | SALVAR FECHAMENTO
     |--------------------------------------------------------------------------
     */
 
-    const insert =
+    const fechamentoInsert =
       await db.execute({
         sql: `
           INSERT INTO fechamentos (
@@ -843,6 +843,99 @@ export async function POST(
         ],
       });
 
+    const fechamentoId =
+      Number(
+        fechamentoInsert
+          .lastInsertRowid
+      );
+
+    /*
+    |--------------------------------------------------------------------------
+    | COPIAR VENDAS PARA O LOG
+    |--------------------------------------------------------------------------
+    |
+    | Antes de apagar da tabela vendas,
+    | guardamos uma cópia permanente.
+    |
+    |--------------------------------------------------------------------------
+    */
+
+    for (const venda of vendas) {
+      /*
+      | Evita duplicação no log caso,
+      | por algum motivo, a operação seja
+      | executada novamente.
+      */
+
+      const existe =
+        await db.execute({
+          sql: `
+            SELECT id
+            FROM vendas_log
+            WHERE id = ?
+            LIMIT 1
+          `,
+          args: [venda.id],
+        });
+
+      if (
+        existe.rows.length === 0
+      ) {
+        await db.execute({
+          sql: `
+            INSERT INTO vendas_log (
+              id,
+              itens,
+              total,
+              pagamento,
+              descricao,
+              created_at,
+              fechamento_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `,
+
+          args: [
+            venda.id,
+
+            venda.itens,
+
+            Number(venda.total) || 0,
+
+            venda.pagamento ||
+              "outro",
+
+            venda.descricao || "",
+
+            venda.created_at,
+
+            fechamentoId,
+          ],
+        });
+      }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | AGORA APAGA AS VENDAS ATUAIS
+    |--------------------------------------------------------------------------
+    |
+    | IMPORTANTE:
+    |
+    | NÃO mexemos em produtos.
+    |
+    | O estoque continua descontado.
+    |
+    | Estamos apenas encerrando o ciclo
+    | dessas vendas.
+    |
+    |--------------------------------------------------------------------------
+    */
+
+    await db.execute(`
+      DELETE FROM vendas
+    `);
+
     /*
     |--------------------------------------------------------------------------
     | RESPOSTA
@@ -854,12 +947,10 @@ export async function POST(
         success: true,
 
         message:
-          "Fechamento realizado com sucesso.",
+          "Fechamento realizado. As vendas foram arquivadas no log e removidas do ciclo atual.",
 
         fechamento: {
-          id: Number(
-            insert.lastInsertRowid
-          ),
+          id: fechamentoId,
 
           numero,
 
@@ -901,6 +992,7 @@ export async function POST(
       {
         error:
           "Erro ao realizar fechamento.",
+
         details:
           error?.message,
       },
@@ -913,15 +1005,16 @@ export async function POST(
 
 /*
 |--------------------------------------------------------------------------
-| DELETE
+| DELETE FECHAMENTO
 |--------------------------------------------------------------------------
 |
 | DELETE /api/fechamentos?id=1
 |
-| Exclui somente o registro do fechamento.
+| Apaga somente o fechamento.
 |
-| ATENÇÃO:
-| As vendas NÃO são apagadas.
+| NÃO apaga o log das vendas.
+|
+| NÃO altera estoque.
 |
 |--------------------------------------------------------------------------
 */
@@ -930,7 +1023,7 @@ export async function DELETE(
   request: NextRequest
 ) {
   try {
-    await criarTabela();
+    await criarTabelas();
 
     const { searchParams } =
       new URL(request.url);
@@ -979,7 +1072,7 @@ export async function DELETE(
       success: true,
 
       message:
-        "Fechamento excluído.",
+        "Fechamento excluído. O histórico das vendas foi preservado.",
     });
   } catch (error: any) {
     console.error(
@@ -991,6 +1084,7 @@ export async function DELETE(
       {
         error:
           "Erro ao excluir fechamento.",
+
         details:
           error?.message,
       },
