@@ -1757,33 +1757,29 @@ export default function App() {
         </button>
 
         <button
-          disabled={fazendoFechamento}
-          onClick={async () => {
-            setFazendoFechamento(true);
-            try {
-              const res = await fetch("/api/fechamentos", { method: "POST", cache: "no-store" });
-              const data = await res.json();
-              if (!res.ok) throw new Error(data.error);
+  disabled={fazendoFechamento}
+  onClick={async () => {
+    setFazendoFechamento(true);
+    try {
+      // Fecha e já apaga as vendas no Turso
+      const res = await fetch("/api/fechamentos", { method: "POST" });
+      if (!res.ok) throw new Error("Erro ao fechar");
 
-              // LIMPA TUDO QUE FAZIA VOLTAR
-              setVendas([]);
-              localStorage.removeItem("vendas");
-              localStorage.removeItem("carrinho");
-              localStorage.removeItem("pdv_vendas");
-              localStorage.removeItem("cart");
+      // Garante que limpou (mesmo que o fechamentos já limpe)
+      await fetch("/api/vendas", { method: "DELETE" });
 
-              setShowConfirmFechamento(false);
-              window.location.href = "/fechamentos";
-            } catch (e: any) {
-              alert(e.message);
-            } finally {
-              setFazendoFechamento(false);
-            }
-          }}
-          className="py-3 rounded-xl bg-[#D6FF57] text-black font-bold"
-        >
-          {fazendoFechamento? "Fechando..." : "Confirmar"}
-        </button>
+      setVendas([]);
+      setShowConfirmFechamento(false);
+      window.location.href = "/fechamentos";
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setFazendoFechamento(false);
+    }
+  }}
+>
+  {fazendoFechamento? "Fechando..." : "Confirmar"}
+</button>
       </div>
     </div>
   </div>
