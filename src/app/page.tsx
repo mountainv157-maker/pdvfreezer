@@ -1720,75 +1720,74 @@ export default function App() {
       )}
 
       {showConfirmFechamento && (
-        <div className="fixed inset-0 bg-black/75 z-[150] flex items-center justify-center p-4">
-          <div
-            className={`w-full max-w-[430px] rounded-[24px] p-6 border ${card}`}
-          >
-            <div className="w-14 h-14 rounded-full bg-[#D6FF57] text-black flex items-center justify-center mx-auto">
-              <span className="material-symbols-rounded text-3xl">
-                task_alt
-              </span>
-            </div>
+  <div className="fixed inset-0 bg-black/75 z-[150] flex items-center justify-center p-4">
+    <div className={`w-full max-w-[430px] rounded-[24px] p-6 border ${card}`}>
+      <div className="w-14 h-14 rounded-full bg-[#D6FF57] text-black flex items-center justify-center mx-auto">
+        <span className="material-symbols-rounded text-3xl">task_alt</span>
+      </div>
 
-            <h2 className="text-xl font-bold text-center mt-4">
-              Fazer fechamento?
-            </h2>
+      <h2 className="text-xl font-bold text-center mt-4">Fazer fechamento?</h2>
 
-            <p className="text-sm opacity-60 text-center mt-2">
-              O ciclo atual será encerrado e
-              um novo ciclo será iniciado.
-            </p>
+      <p className="text-sm opacity-60 text-center mt-2">
+        O ciclo atual será encerrado e um novo ciclo será iniciado.
+      </p>
 
-            <div className="mt-4 p-4 rounded-2xl bg-zinc-800 text-white">
-              <div className="flex justify-between text-sm">
-                <span>Vendas</span>
-                <b>{vendas.length}</b>
-              </div>
-
-              <div className="flex justify-between mt-2">
-                <span>Total</span>
-
-                <b className="text-[#D6FF57]">
-                  {dinheiro(
-                    resumoAtual.totalGeral
-                  )}
-                </b>
-              </div>
-            </div>
-
-            <p className="text-xs opacity-50 text-center mt-4">
-              As vendas serão encerradas no
-              ciclo atual e continuarão
-              disponíveis no Log e no
-              fechamento histórico.
-            </p>
-
-            <div className="grid grid-cols-2 gap-3 mt-5">
-              <button
-                disabled={fazendoFechamento}
-                onClick={() =>
-                  setShowConfirmFechamento(
-                    false
-                  )
-                }
-                className="py-3 rounded-xl border border-zinc-700"
-              >
-                Cancelar
-              </button>
-
-              <button
-                disabled={fazendoFechamento}
-                onClick={fazerFechamento}
-                className="py-3 rounded-xl bg-[#D6FF57] text-black font-bold"
-              >
-                {fazendoFechamento
-                  ? "Fechando..."
-                  : "Confirmar"}
-              </button>
-            </div>
-          </div>
+      <div className="mt-4 p-4 rounded-2xl bg-zinc-800 text-white">
+        <div className="flex justify-between text-sm">
+          <span>Vendas</span>
+          <b>{vendas.length}</b>
         </div>
-      )}
+        <div className="flex justify-between mt-2">
+          <span>Total</span>
+          <b className="text-[#D6FF57]">{dinheiro(resumoAtual.totalGeral)}</b>
+        </div>
+      </div>
+
+      <p className="text-xs opacity-50 text-center mt-4">
+        As vendas serão encerradas no ciclo atual e continuarão disponíveis no Log e no fechamento histórico.
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 mt-5">
+        <button
+          disabled={fazendoFechamento}
+          onClick={() => setShowConfirmFechamento(false)}
+          className="py-3 rounded-xl border border-zinc-700"
+        >
+          Cancelar
+        </button>
+
+        <button
+          disabled={fazendoFechamento}
+          onClick={async () => {
+            setFazendoFechamento(true);
+            try {
+              const res = await fetch("/api/fechamentos", { method: "POST", cache: "no-store" });
+              const data = await res.json();
+              if (!res.ok) throw new Error(data.error);
+
+              // LIMPA TUDO QUE FAZIA VOLTAR
+              setVendas([]);
+              localStorage.removeItem("vendas");
+              localStorage.removeItem("carrinho");
+              localStorage.removeItem("pdv_vendas");
+              localStorage.removeItem("cart");
+
+              setShowConfirmFechamento(false);
+              window.location.href = "/fechamentos";
+            } catch (e: any) {
+              alert(e.message);
+            } finally {
+              setFazendoFechamento(false);
+            }
+          }}
+          className="py-3 rounded-xl bg-[#D6FF57] text-black font-bold"
+        >
+          {fazendoFechamento? "Fechando..." : "Confirmar"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
       <nav className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[calc(100%-20px)] max-w-[520px] z-50">
         <div className="grid grid-cols-5 items-center rounded-[28px] p-2 bg-[#151517] border border-zinc-800 shadow-2xl overflow-hidden">
