@@ -82,6 +82,7 @@ const GALERIA = [
   ["Guaraná Lata", "/img/guaranalata.png"],
   ["Guaraná Lata Zero", "/img/guaranalatazero.png"],
   ["Água 500ml", "/img/agua.png"],
+  ["RedBull", "/img/redbull.png"],
 ];
 
 function normalizarDescricao(v: string) {
@@ -707,7 +708,7 @@ export default function App() {
   async function deletarFechamento(id: number) {
     if (
       !confirm(
-        `Apagar o relatório de fechamento #${id}? Esta ação não apaga as vendas do Log.`
+        `Apagar o relatório de fechamento #${id}?.`
       )
     ) {
       return;
@@ -975,7 +976,7 @@ export default function App() {
         {tab === "home" && (
           <section>
             <h1 className="text-3xl font-bold">
-              Home
+              Vendas
             </h1>
 
             <p className="text-xs opacity-60">
@@ -1029,7 +1030,7 @@ export default function App() {
         {tab === "pdv" && (
           <section className="max-w-[700px] mx-auto">
             <h1 className="text-3xl font-bold">
-              PDV - Produtos
+               Estoque
             </h1>
 
             <p className="text-xs opacity-60">
@@ -1138,11 +1139,11 @@ export default function App() {
             <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
               <div>
                 <h1 className="text-3xl font-bold">
-                  Dashboard
+                  Caixa
                 </h1>
 
                 <p className="text-xs opacity-60">
-                  Ciclo atual • vendas ainda não
+                  Vendas atuais • vendas ainda não
                   fechadas
                 </p>
               </div>
@@ -1298,7 +1299,7 @@ export default function App() {
                 </h1>
 
                 <p className="text-xs opacity-60">
-                  Histórico dos ciclos encerrados
+                  Histórico das vendas fechadas
                 </p>
               </div>
 
@@ -1432,10 +1433,6 @@ export default function App() {
                     Nenhum fechamento
                   </p>
 
-                  <p className="text-xs opacity-50 mt-1">
-                    Faça o primeiro fechamento
-                    pelo Dashboard.
-                  </p>
                 </div>
               )}
             </div>
@@ -1820,10 +1817,6 @@ export default function App() {
                 </b>
               </div>
             </div>
-
-            <p className="text-xs opacity-50 text-center mt-4">
-              As vendas serão encerradas no ciclo atual e continuarão disponíveis no Log e no fechamento histórico.
-            </p>
 
             <div className="grid grid-cols-2 gap-3 mt-5">
               <button
