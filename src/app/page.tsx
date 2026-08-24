@@ -1034,7 +1034,7 @@ export default function App() {
             </h1>
 
             <p className="text-xs opacity-60">
-              Adiciona e remove produtos do banco
+              Adiciona e remove produtos
             </p>
 
             <AddProduto
@@ -1043,7 +1043,7 @@ export default function App() {
             />
 
             <h2 className="text-xl font-bold mt-6 mb-3">
-              Produtos no banco
+              Produtos
             </h2>
 
             <div
