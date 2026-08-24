@@ -1765,6 +1765,9 @@ export default function App() {
       const res = await fetch("/api/fechamentos", { method: "POST" });
       if (!res.ok) throw new Error("Erro ao fechar");
 
+      // Garante que limpou (mesmo que o fechamentos já limpe)
+      await fetch("/api/vendas", { method: "DELETE" });
+
       setVendas([]);
       setShowConfirmFechamento(false);
       window.location.href = "/fechamentos";
