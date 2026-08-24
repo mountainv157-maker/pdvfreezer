@@ -1142,10 +1142,6 @@ export default function App() {
                   Caixa
                 </h1>
 
-                <p className="text-xs opacity-60">
-                  Vendas atuais • vendas ainda não
-                  fechadas
-                </p>
               </div>
 
               {vendas.length > 0 && (
@@ -1171,7 +1167,7 @@ export default function App() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider opacity-60">
-                    💰 Fechamento Geral
+                    💰 Vendas por pagamentos
                   </p>
 
                   <p className="text-3xl font-extrabold mt-1">
@@ -1204,7 +1200,7 @@ export default function App() {
                   resumoAtual.porPagamento
                 ).length && (
                   <p className="text-xs opacity-50 py-2">
-                    Nenhuma venda no ciclo atual.
+                    Nenhuma venda.
                   </p>
                 )}
               </div>
@@ -1214,7 +1210,7 @@ export default function App() {
               className={`p-5 rounded-2xl border ${card}`}
             >
               <p className="text-xs font-semibold uppercase tracking-wider opacity-60">
-                👤 Fechamentos por descrição
+                👤 Vendas por Descrição
               </p>
 
               <div className="mt-4 space-y-3">
